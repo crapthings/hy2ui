@@ -1,35 +1,42 @@
-# 开发指南
+# Development guide
 
-Hy2UI 是原生 macOS Hysteria 2 客户端，采用 SwiftUI / AppKit 与固定版本的 Rust 核心。支持系统代理、本地管理员 TUN 后台，并保留 Network Extension 后端。
+Hy2UI is a native macOS Hysteria 2 client. It uses SwiftUI and AppKit with a pinned Rust core. It supports System Proxy and Enhanced Mode through a local administrator service. A Network Extension backend is also included.
 
-下列命令均在项目根目录运行。真实后台安装、卸载和系统网络变更由用户主动发起，自动验证只运行编译、模拟服务及本地回环测试。
+Run all commands below from the repository root. Installing or removing the service, and changing system network settings, require an explicit user action. Automated checks use builds, mock services, and local loopback tests.
 
-## 界面与服务器
+## Interface and servers
 
-默认中文，设置中可切换 English。文本设置在失焦或回车后验证保存；服务器编辑保留显式保存。侧栏最多展示三个节点，按置顶、最近成功连接、最近添加排序，“更多”进入完整列表。列表支持添加、置顶、编辑、删除与手动 TCP 延迟测试。
+The default language is Simplified Chinese. Choose English in Settings. Text settings are validated and saved when a field loses focus or you press Return. Server edits use an explicit Save button.
 
-窗口标题栏右侧提供增强模式和系统代理菜单，状态灯区分运行、待连接与关闭；后台安装和维护在设置中完成。首次引导可以跳过。后台安装状态仅显示红色“未安装”或绿色“已安装”。密码按服务器 UUID 存入 macOS 钥匙串。
+The sidebar shows up to three servers, ordered by pins, most recent successful use, then newest additions. More opens the full list, where you can add, pin, edit, delete, or test servers. Deleting a server requires confirmation. Ordering preferences are stored in local UserDefaults and contain no credentials.
 
-## 架构
+The title bar has Enhanced Mode and System Proxy menus. A green dot means active, amber means selected but waiting to connect, and gray means off. Install and manage the background service in Settings. The first-run guide is optional. Installation status is plain red Not Installed or green Installed text. Passwords are stored in the macOS Keychain, using each server's UUID.
+
+Test Latency measures TCP connection setup time to each server address. It runs only when requested, with up to four tests at once and a three-second timeout per server. It does not connect through the Hy2 protocol, read passwords, or change system network settings. TCP latency is not QUIC RTT, and a TCP timeout does not mean Hy2 is unavailable. An active proxy or TUN may affect results. Measurements stay on the page and are hidden if the endpoint changes.
+
+## Architecture
 
 ```text
-SwiftUI / AppKit 主程序
-├── 系统代理：SystemConfiguration → 本地 HTTP / SOCKS5 → Rust 子进程
-└── 增强模式
-    ├── 本地 TUN：受限 Unix socket → root 后台 → root Rust TUN worker
-    └── Network Extension：System Extension → packetFlow ↔ Rust packet engine
+SwiftUI / AppKit app
+├── System Proxy: SystemConfiguration → local HTTP / SOCKS5 → Rust process
+└── Enhanced Mode
+    ├── Local TUN: restricted Unix socket → root service → Rust TUN worker
+    └── Network Extension: System Extension → packetFlow ↔ Rust packet engine
 ```
 
-- 本地增强模式复用 Rust 的 TCP/UDP TUN 核心，由管理员后台管理 DNS、进程和恢复；Network Extension 后端则由系统管理接口、路由和 DNS。
-- 扩展使用有界输入/输出队列，串行管理 Rust 句柄，在输入队列满时暂停读取并重试。
-- 建立隧道前解析服务端地址并保持 TLS SNI；组合模式将同一冻结地址交给代理与 TUN。本地 TUN 将该地址通过物理路由排除，避免连接被送回自身。服务器 IP 变化后需要重新连接。
-- 密码保存在主程序钥匙串；系统代理客户端通过有大小限制的 stdin 管道接收配置，不创建明文凭据文件；不写入持久 VPN 配置。扩展仅通过启动消息接收凭据，因此此版本不支持系统设置直接启动、按需连接或重启后自动连接。
-- 系统代理启动时先确认远端已连接、两个本地监听已建立且进程仍存活，再设置代理。设置前保存恢复记录；恢复时按 HTTP / HTTPS / SOCKS 的 enable、host、port 整组判断所有权，保留其他软件新修改的整组设置。
-- Rust 代理子进程检测父进程退出并结束。主程序异常退出后，系统代理需要重新打开应用点击“恢复系统代理”；当前尚无独立守护进程自动恢复设置。固定的无认证 loopback 端口在进程退出后可能被其他本地进程抢占，因此此版本仍有本地端口接管窗口。
+The local service manages DNS, worker processes, and recovery. It uses the Rust core for TCP and UDP forwarding. In the Network Extension backend, macOS manages the interface, routes, and DNS. The extension uses bounded packet queues and serial access to Rust handles. It pauses reads when the input queue is full.
 
-## 环境与构建
+Before connecting, the app resolves the server address while preserving TLS SNI. When both modes are enabled, they use the same resolved address. Local TUN adds a route through the physical interface for that address to avoid routing its own connection back into the tunnel. Reconnect if the server IP changes.
 
-需要 macOS 14+、完整 Xcode、Rust 工具链及 Python 3。当前在 Apple Silicon / Xcode 26.6 上通过命令行编译；Intel 构建路径已提供但未验证。
+Credentials reach the proxy process through a bounded stdin pipe. They are not written to plaintext files or persistent VPN settings. The extension receives credentials only in its start message, so starting from System Settings, on-demand connections, and automatic connections after restart are not supported.
+
+System Proxy starts only after the remote connection and both local listeners are ready. Before applying settings, the app saves a recovery record. Recovery compares the enabled flag, host, and port together for each HTTP, HTTPS, and SOCKS entry. It preserves entries changed by other software.
+
+The Rust proxy exits when its parent process ends. After an app crash, reopen Hy2UI and choose Restore System Proxy. There is no separate service that restores proxy settings automatically. Local listeners have fixed ports and no authentication; another local process could claim those ports after the worker exits.
+
+## Requirements and builds
+
+You need macOS 14 or later, the full Xcode app, Rust, and Python 3. Command-line builds have been checked on Apple Silicon with Xcode 26.6. The Intel build path is provided but has not been verified.
 
 ```sh
 git submodule update --init --recursive
@@ -37,71 +44,71 @@ python3 Scripts/setup-signing.py
 Scripts/build.sh
 ```
 
-脚本会下载校验过的 XcodeGen 2.46.0 到 `.tools/`，生成 Xcode 工程，然后执行 Xcode 构建，并用固定自签名证书封装本地产物资源完整性；Xcode 的前置构建阶段负责检查并编译 Rust 静态库、客户端、TUN worker 和 Swift 本地后台。构建产物保存在项目内部，私有签名材料保存在仓库外。首次构建会下载 Cargo 依赖。
+The build script downloads and verifies XcodeGen 2.46.0 in `.tools/`, generates the Xcode project, and builds the app. Xcode build phases compile the Rust library, client, TUN worker, and Swift service. The final app is sealed with the persistent local signing identity. Build output stays in the repository's ignored directories; private signing files stay outside the repository. The first build downloads Cargo dependencies.
 
-产物：`.build/xcode/Build/Products/Debug/Hy2UI.app`。
+The Debug app is at `.build/xcode/Build/Products/Debug/Hy2UI.app`.
 
-Release / 指定 CPU 架构：
+For Release builds or a different architecture:
 
 ```sh
 Scripts/build.sh release arm64
-# Intel 需要先安装对应 Rust target：
+
+# Install the Rust target before building for Intel.
 rustup target add x86_64-apple-darwin
 Scripts/build.sh release x86_64
 ```
 
-目前每次生成单一架构应用，不自动生成 Universal Binary。
+Each build produces a single-architecture app, not a Universal Binary.
 
-也可打开生成的 `Hy2UI.xcodeproj` 进行开发，Xcode 每次构建都会让 Cargo 检查完整依赖图。原生产物按配置和架构保存到 `.build/native/{debug,release}/{arm64,x86_64}/`，避免 Debug / Release 混用。`project.yml` 是工程配置源。
+You can also open the generated `Hy2UI.xcodeproj`. Each Xcode build lets Cargo check the dependency graph. Native output is separated by configuration and architecture under `.build/native/{debug,release}/{arm64,x86_64}/`. Edit `project.yml`, the project source, rather than the generated Xcode project.
 
-## 本机自用的本地增强模式
+## Local TUN service
 
-此后端不使用 Network Extension，无需 Apple Developer 账号、App Store 发布或关闭 SIP；创建 TUN、修改路由和 DNS 的权限来自你显式安装的管理员后台。主程序始终以普通用户运行。
-
-开发者先用普通用户构建并打开应用：
+Local TUN does not require Network Extension, an Apple Developer account, App Store distribution, or disabling SIP. Its privileges come from the service the user installs. The app itself runs as a normal user.
 
 ```sh
 Scripts/build.sh
 open .build/xcode/Build/Products/Debug/Hy2UI.app
 ```
 
-分发时只需携带完整的 `Hy2UI.app`，两个后台程序与安装逻辑都已内置，无需额外分发脚本。用户在应用中打开“增强模式（TUN）”，后端选择“本地 TUN（管理员授权）”，点击“安装后台”，在 macOS 的管理员授权窗口中确认，然后连接。应用不收集或保存管理员密码。后台区域提供安装、更新、修复与卸载操作，进入设置时自动检查状态；升级或卸载前先断开连接并确认资源清理完成。可以同时开启“系统代理”；连接期间锁定设置，断开后可重新选择。测试时先关闭 Surge 等其他软件的增强模式，避免多套 TUN 同时争抢路由。
+Distribute the complete `Hy2UI.app`. It contains both service executables and the installer; no separate scripts are needed for normal use. In Settings, choose the Local TUN backend and install the service. Approve the macOS administrator prompt, then enable Enhanced Mode and connect. The app does not collect or store the administrator password.
 
-经用户授权后，内置安装程序会将两个后台可执行文件复制到固定的 `/Library/PrivilegedHelperTools/dev.hy2ui/`，归 root 所有，并注册 `/Library/LaunchDaemons/dev.hy2ui.local-tun.plist`。后台只允许安装时的普通用户 UID 连接，应用校验后台 UID 必须为 root；IPC 不允许指定程序路径、文件路径或任意核心配置。凭据只经 Unix socket 和 stdin 在内存传递，后台不记录原始 worker 日志。
+Settings provides install, update, repair, and uninstall actions, and refreshes status when opened. Disconnect and complete cleanup before updating or uninstalling. System Proxy can be enabled independently or alongside Enhanced Mode. Network settings are locked during a connection. Turn off other apps' TUN modes before testing to avoid route conflicts.
 
-系统代理通过 macOS 网络设置授权修改偏好，应用运行期间复用授权对象；授权是否继续有效由系统决定。已安装的本地 TUN 后台连接不走该授权流程，仅使用 TUN 时可关闭“系统代理”。未修改的已保存节点在连接时不重复读写钥匙串。
+The installer copies executables to `/Library/PrivilegedHelperTools/dev.hy2ui/`, makes them root-owned, and registers `/Library/LaunchDaemons/dev.hy2ui.local-tun.plist`. The service accepts only the user UID approved at installation. The app verifies that the service runs as root. IPC cannot supply arbitrary executable paths, file paths, or core configurations. Credentials pass through the Unix socket and stdin in memory. The service does not record raw worker logs.
 
-后台空闲时不创建 TUN。连接后才应用 DNS 与路由，停止、客户端断开和服务重启时尝试恢复；DNS 有独立的 root-owned 恢复日志。未收到停止确认时，应用保留资源所有权并提供“重试清理”。若需要手动恢复：
+System Proxy uses macOS authorization to change network preferences. The app reuses the authorization object while running, but macOS decides how long it remains valid. Connections through an installed Local TUN service do not use that authorization flow. You can leave System Proxy off when using only TUN. Connecting with an unchanged saved server does not read or write its Keychain entry again.
+
+The service creates no TUN interface while idle. It applies DNS and routes on connection, and attempts recovery on stop, client disconnect, and service restart. DNS also has a root-owned recovery journal. If stop is not confirmed, the app retains ownership of the resources and offers Retry Cleanup.
+
+### Recovery and updates
+
+For manual DNS recovery, first stop the service, then run:
 
 ```sh
 sudo /Library/PrivilegedHelperTools/dev.hy2ui/hy2-local-tun-helper --recover-dns
 ```
 
-该命令需要服务已停止；运行中的后台持有独占锁时，恢复命令会拒绝并发修改。正常情况下优先在应用中断开，或使用下方卸载脚本停止服务并恢复。
+Recovery refuses to run while the service holds its exclusive lock. Prefer disconnecting in the app, or use the uninstall script below to stop the service and recover DNS.
 
-应用重新构建后，已安装的 root 副本不会自动更新；应用会比较后台摘要并显示更新入口，用户点击“更新”完成更新。安装前验证当前应用与内置程序签名，授权后的 root 暂存副本必须匹配授权前记录的 SHA-256，避免授权等待期间替换程序。
+Rebuilding the app does not replace the installed root-owned copies. The app compares executable hashes and offers Update when needed. Before requesting administrator approval, it verifies the app and bundled code. After approval, staged copies must match the SHA-256 hashes captured before authorization.
 
-开发时重新构建正在运行的应用后，请先退出并重新打开新版，再安装或更新后台；运行进程和磁盘代码不一致时，安装前校验会拒绝继续。
+If you rebuild a running app, quit and reopen it before installing or updating the service. The installer rejects a running process that no longer matches the app on disk.
 
-本机开发请使用 `Scripts/build.sh` 完成资源签名，直接关闭签名的 Xcode 构建可能无法通过安装前校验。固定自签名版本可自行分发，但不具备 Developer ID 信任与公证；首次启动可能需要用户在系统设置的“隐私与安全性”中选择“仍要打开”。无需安装根证书或关闭 Gatekeeper。Developer ID 签名与公证仍是减少分发阻力的方式，无需上架 App Store。当前安装入口通过系统管理员授权执行内置安装程序，未采用 SMAppService。
+Use `Scripts/build.sh` to seal local builds. An unsigned Xcode build may fail the installer checks. The installer uses macOS administrator authorization and does not use SMAppService.
 
-以下终端脚本保留为高级恢复入口，正常安装、更新、卸载均可在界面完成。手动安装 Release 时可传入应用路径：
+The following scripts are for manual setup and recovery. They change system services and require administrator approval. Normal users can perform these actions in Settings instead.
 
 ```sh
 sudo Scripts/install-local-tun-helper.sh .build/xcode/Build/Products/Release/Hy2UI.app
-```
-
-卸载后台并恢复 DNS：
-
-```sh
 sudo Scripts/uninstall-local-tun-helper.sh
 ```
 
-升级和卸载都先停止旧服务并尝试恢复 DNS；恢复失败就保留已安装文件供重试。不会删除节点配置或钥匙串凭据。本轮开发验证没有执行这些管理员命令。
+Both update and uninstall stop the old service and try to restore DNS first. If recovery fails, installed files remain available for a retry. Server profiles and Keychain credentials are kept. Automated validation does not run these administrator commands.
 
-## 固定自签名身份
+## Persistent local signing
 
-首次构建前运行一次：
+Run setup once before the first build:
 
 ```sh
 python3 Scripts/setup-signing.py
@@ -109,39 +116,46 @@ Scripts/build.sh
 python3 Scripts/test-signing.py
 ```
 
-证书、加密私钥备份与钥匙串密码保存在 `~/Library/Application Support/Hy2UI-Signing/`，仅当前用户可读；请安全备份整个目录，不要提交、打包进 DMG 或公开。后续构建复用同一证书，签名材料丢失或失效时会停止，不会自动换证或退回 ad-hoc。构建期间临时将专用钥匙串加入用户搜索列表，结束时恢复原列表；不安装受信任根证书。
+The certificate, encrypted private-key backup, and keychain password are stored in `~/Library/Application Support/Hy2UI-Signing/`, readable only by the current user. Keep a secure backup of the whole directory. Never commit it, include it in a DMG, or publish it.
 
-固定证书和 Bundle ID 能保持跨版本的应用签名身份，减少钥匙串重复授权。旧 ad-hoc 版本迁移后仍可能再询问一次，可选择“始终允许”；更换证书、钥匙串权限或系统策略也可能再次触发授权。节点密码仍按服务器 UUID 更新原钥匙串条目，不因构建增加副本。
+Later builds reuse the same certificate. If signing material is missing or invalid, the build stops instead of creating a new identity or falling back to ad-hoc signing. During signing, the dedicated keychain is added to the user search list temporarily, then the previous list is restored. No trusted root certificate is installed.
 
-此方式用于本地 TUN 后端，不授予 Network Extension 权限。`HY2_SIGN=1` 继续使用 Xcode 配置的 Apple 签名流程。自签名 DMG 的干净机器首次安装与升级流程仍需人工验证。
+A stable certificate and bundle ID preserve the app's signing identity across builds and reduce repeated Keychain prompts. Moving from an ad-hoc build may still require one more approval; choose Always Allow if appropriate. A new certificate, changed Keychain permissions, or system policy can trigger another prompt. Server credentials update the same UUID-based entries rather than creating a copy for each build.
 
-## Network Extension 签名与联调
+Self-signed apps can be distributed, but they do not have Developer ID trust or notarization. On first launch, users may need to choose Open Anyway in System Settings → Privacy & Security. They do not need to install a root certificate or disable Gatekeeper. Developer ID signing and notarization make distribution easier and do not require App Store release.
 
-采用 Developer ID 直接分发的 System Extension 结构。签名前需要自己的 Apple Developer Team、App ID 与匹配的 Network Extension provisioning profile。
+Local self-signing supports the Local TUN build; it does not grant Network Extension entitlements. `HY2_SIGN=1` keeps the Xcode Apple-signing path. First install and upgrades from a self-signed DMG still need testing on a clean machine.
 
-1. 复制 `Config/Local.xcconfig.example` 为 `Config/Local.xcconfig`，填写 Team ID 和 Bundle ID 前缀。
-2. 为主程序和 VPN 扩展配置相应签名能力。主程序需要 Network Extension 和安装 System Extension 权限；扩展需要 Packet Tunnel System Extension 和匹配的 App Group，用于 Mach service 命名。
-3. 使用 `HY2_SIGN=1 Scripts/build.sh` 构建已签名应用。
-4. 将应用安装到 `/Applications`，从应用中发起连接，按 macOS 提示允许扩展和 VPN 配置。
+## Network Extension signing
 
-本节只针对 Network Extension 后端；本地 TUN 后端使用上一节的界面安装入口。Developer ID 签名、系统扩展启用、特权后台安装及系统网络设置变更都没有在自动验证中执行。未签名产物不能用于验证 Network Extension。发布还需要正确的 Developer ID 签名、公证和干净机器安装测试。
+This backend uses a System Extension for direct Developer ID distribution. You need an Apple Developer team, an App ID, and a matching Network Extension provisioning profile.
 
-Apple 参考：[Packet Tunnel](https://developer.apple.com/documentation/networkextension/nepackettunnelprovider)、[扩展部署要求](https://developer.apple.com/documentation/technotes/tn3134-network-extension-provider-deployment)、[支持的使用方式](https://developer.apple.com/documentation/technotes/tn3120-expected-use-cases-for-network-extension-packet-tunnel-providers)。
+1. Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig`. Set your team ID and bundle ID prefix.
+2. Configure signing capabilities for the app and extension. The app needs Network Extension and System Extension installation entitlements. The extension needs Packet Tunnel System Extension support and a matching App Group for Mach service naming.
+3. Build with `HY2_SIGN=1 Scripts/build.sh`.
+4. Install the app in `/Applications`, connect from the app, and approve the extension and VPN configuration when macOS asks.
 
-## 本地后台故障诊断
+These steps apply only to the Network Extension backend. Local TUN uses the installer described above. Automated checks do not enable extensions, install privileged services, or change system network settings. Unsigned builds cannot validate Network Extension behavior. Distribution still needs the correct signing, notarization, and clean-machine installation tests.
 
-本地 TUN 的 IPC 中断后，应用显示“需要恢复”并保留资源所有权，不再将其显示为正在重连；确认后台停止前仍需“重试清理”。真实的 Network Extension 重连状态不受影响。
+Apple references: [Packet Tunnel](https://developer.apple.com/documentation/networkextension/nepackettunnelprovider), [deployment requirements](https://developer.apple.com/documentation/technotes/tn3134-network-extension-provider-deployment), and [supported use cases](https://developer.apple.com/documentation/technotes/tn3120-expected-use-cases-for-network-extension-packet-tunnel-providers).
 
-后台通过固定错误类别区分核心启动失败、启动超时、运行中退出、DNS 失败和清理失败；核心退出时附带数字退出码及是否由信号终止。界面日志保留这些信息，后台日志 `/private/var/log/dev.hy2ui.local-tun.log` 记录带时间戳的结构化故障。未知错误不转发原文，凭据、原始配置、Rust stderr 与具体目标地址不会被诊断日志透传。观察到 rc5 的 QUIC 断开日志时，应用显示需要恢复并保留资源状态；只有后续真实的连接成功事件才恢复连接状态。核心仍在新请求到来时连接，不启动额外的后台重连循环；已有 TCP 流仍需由调用方重试。TCP/UDP 单条流错误只记录固定类别，不将整个 TUN 判定为断开。
+## Diagnostics
 
-这些诊断不等同于端到端健康检查：核心进程存活且未报告状态时，仍无法立即判定 QUIC 或某条 TCP/UDP 流是否已经失效。升级此版本后需从应用界面更新后台，已安装的旧 root 副本不会自动替换。内嵌客户端已升级至 rc5，PacketTunnel 适配复用上游 TCP/UDP 转发与错误限流逻辑，不复制或改写上游 UDP 会话、IPv6 转发和重连算法。
+If Local TUN loses IPC, the app shows Recovery Required and retains resource ownership. It does not claim to be reconnecting. Use Retry Cleanup until the service confirms it has stopped. Actual Network Extension reconnect states are handled separately.
 
-## 验证
+The service reports fixed failure categories for core startup, timeout, process exit, DNS, and cleanup. Exit reports include the numeric status and whether a signal ended the process. The app keeps these details in its logs. The service writes structured, timestamped failures to `/private/var/log/dev.hy2ui.local-tun.log`.
+
+Unknown errors are not forwarded as raw text. Diagnostics do not pass through credentials, raw configuration, Rust stderr, or destination addresses. An rc5 QUIC disconnect event marks the session as needing recovery; only a later connected event restores connected status. The core reconnects when new requests arrive. The app adds no separate reconnect loop, and callers must retry existing TCP streams. A single TCP or UDP flow error does not mark the whole TUN as disconnected.
+
+These signals are not an end-to-end health check. A running core that reports no state change may still have a failed connection or flow. Update the installed service from Settings after upgrading the app; old root-owned copies are not replaced automatically. PacketTunnel reuses the rc5 TCP/UDP forwarding and error-limiting code rather than replacing upstream session, IPv6, or reconnect logic.
+
+## Tests
 
 ```sh
 swift test
 Scripts/test-helper-installer.sh
 Scripts/test-server-library.sh
+Scripts/test-server-latency.sh
 Scripts/test-core-process.sh
 Scripts/test-local-tun.sh
 Scripts/test-local-tun-service.sh
@@ -149,43 +163,38 @@ python3 Scripts/prepare-core.py
 cargo test --locked --manifest-path Native/Cargo.toml -p hy2-bridge
 ```
 
-安装器测试使用注入的授权执行器覆盖安装、卸载、取消、失败、重复操作及过期检查；仅编译 AppleScript 以检查语法，不执行管理员授权或服务变更。
+Installer tests inject an authorization runner to cover install, uninstall, cancellation, failure, duplicate actions, and stale checks. AppleScript is compiled for syntax checks but is not run with administrator authorization.
 
-Swift 测试覆盖配置转义、地址校验、整组代理所有权、取消安全等待、过期会话回调和可注入服务的连接生命周期；配置与钥匙串失败不会阻断恢复，恢复失败也不会丢失资源所有权。独立进程测试使用不打开网络端口的模拟 worker，验证 stdin 传递、启动时退出和重复停止。Rust 测试覆盖 ABI 参数、worker 输入边界和本地 Hysteria 数据包往返；只使用 loopback，不创建网络接口、不修改系统代理或路由。
+Swift tests cover configuration encoding, address validation, proxy ownership, cancellation, stale callbacks, server ordering, and connection lifecycles with mock services. Configuration or Keychain errors must not block recovery, and failed recovery must not discard resource ownership. Process tests use mock workers to check stdin delivery, startup exits, and repeated stops.
 
-## 代码职责与配置升级
+Rust tests cover ABI arguments, worker input limits, and local Hysteria packet round trips. The latency smoke test uses an ephemeral loopback TCP listener. Network tests use loopback only; they do not create TUN interfaces or change system proxies, DNS, or routes.
 
-`Connection/` 将资源生命周期、配置编辑和初始化拆开，并通过协议注入 worker、代理恢复、VPN 和持久化服务，便于使用模拟服务测试故障和取消。`AppModel` 负责界面状态组合，错误消息独立于连接与资源所有权。VPN Provider 和数据包引擎共用串行生命周期队列，异步 DNS 和设置回调都校验会话 ID。
+## Code structure and data migration
 
-持久化配置和钥匙串凭据使用版本化编码，兼容旧版裸 JSON，并为旧配置缺失的新增字段提供默认值；未来未知版本拒绝覆盖。顶层声明使用一句话说明职责，复杂职责先拆分。
+`Connection/` separates resource lifecycles, profile editing, and initialization. Protocols inject workers, proxy recovery, VPN, and storage services for failure and cancellation tests. `AppModel` combines UI state without tying errors to resource ownership. The VPN provider and packet engine share a serial lifecycle queue. Asynchronous DNS and settings callbacks check session IDs.
 
-流量接管只使用独立的系统代理与增强模式开关；旧 `mode` 字段仅在读取缺少开关的历史配置时迁移，新配置不再写入它。增强模式后端由用户明确选择，失败时直接报错并清理资源，不会自动切换后端。恢复记录解析失败会保留记录并提示错误，不会把损坏内容视为空设置。
+Saved profiles and Keychain credentials use versioned formats. Legacy plain JSON remains readable, and missing fields receive defaults. Unknown future versions are not overwritten. Every first-party top-level declaration has a one-sentence responsibility comment; split code first if one sentence cannot explain it clearly.
 
-## 当前范围与待办
+System Proxy and Enhanced Mode are independent choices. The old `mode` field is read only to migrate profiles that lack these choices; new saves omit it. Users choose the Enhanced Mode backend explicitly. Failure triggers an error and cleanup, not an automatic backend switch. An invalid recovery record is preserved and reported rather than treated as empty settings.
 
-已实现：多服务器管理与旧配置迁移、Keychain、独立的系统代理与增强开关、本地 TUN 管理员后台及界面安装/更新/卸载、Network Extension 后端、DNS 恢复记录、服务端路由排除、Rust 数据包桥接、启动取消与退出清理。
+## Scope and remaining work
 
-后续需要验证或补齐：
+Implemented features include multiple servers, legacy profile migration, Keychain storage, independent capture modes, the Local TUN service and its installer, a Network Extension backend, DNS recovery, server route exclusion, the Rust packet bridge, startup cancellation, and cleanup on exit.
 
-- 本地后台的真实安装、升级、卸载与故障恢复验证，以及已签名 Network Extension 的授权和生命周期验证。
-- 真实服务器下的 TCP/UDP、IPv6、DNS、休眠唤醒、Wi-Fi / 有线切换和故障恢复。
-- 系统代理连接期间新增网络服务的自动同步；当前对启动时现有的网络服务设置代理。
-- 主程序崩溃后的系统代理自动恢复；当前恢复记录会保留到下次启动。
-- 订阅、规则分流、速率统计、开机启动、自动连接和 Kill Switch。
-- Hysteria 承载 TCP/UDP；不提供通用 ICMP 隧道。
+Further testing and work include:
 
-## 上游与许可
+- Clean-machine service install, update, uninstall, and recovery; signed Network Extension authorization and lifecycle tests.
+- Real-server TCP, UDP, IPv6, DNS, sleep and wake, network changes, and recovery.
+- Applying System Proxy settings to network services added during a connection. Currently, only services present at startup are configured.
+- Automatic System Proxy recovery after an app crash. Recovery records currently remain until the next launch.
+- Subscriptions, routing rules, traffic statistics, launch at login, automatic connections, and a kill switch.
 
-核心：[crapthings/hysteria-rust](https://github.com/crapthings/hysteria-rust)，通过 submodule 锁定提交 `f364dab51b3908d5c158309b1eba54445628641a`（源码版本 `0.1.0-rc.5`）。适配以 `Patches/core-*.patch` 显式补丁和 `Patches/embedded.rs` 保存；准备脚本断言上游提交与工作树状态，在干净的归档中应用补丁，并按内容摘要发布不可变源码目录，再原子切换 `.build/core` 符号链接。Cargo 缓存始终保存在 `Native/target`。
+Hysteria carries TCP and UDP. It does not provide a general ICMP tunnel.
 
-`Native/Cargo.lock` 从上游锁文件派生，必须保留。上游有定制的 Quinn / Rustls 等依赖，不能简单重新生成成最新 registry 版本。
+## Upstream and licenses
 
-上游采用 MIT 许可证；vendored 依赖的许可和声明见 `Vendor/hysteria-rust/LICENSE` 与 `THIRD_PARTY_NOTICES.md`。正式分发需要包含依赖声明。
+The core is [crapthings/hysteria-rust](https://github.com/crapthings/hysteria-rust), pinned as a submodule at `f364dab51b3908d5c158309b1eba54445628641a` (source version `0.1.0-rc.5`). Adaptations live in `Patches/core-*.patch` and `Patches/embedded.rs`. The preparation script checks the commit and clean source tree, applies patches to an archive, creates an immutable source directory keyed by content, and atomically updates the `.build/core` symlink. Cargo caches stay in `Native/target`.
 
-## 服务器列表
+Keep `Native/Cargo.lock`. It is derived from the upstream lockfile and includes customized Quinn and Rustls dependencies. Do not replace it with a lockfile that selects the latest registry versions.
 
-侧栏最多显示 3 个服务器，按置顶优先、最近成功连接、最近添加排序；“更多”打开完整列表。列表中可添加服务器，并通过每行菜单置顶、取消置顶、编辑或删除，删除需确认。排序偏好独立保存在本机 UserDefaults，不包含凭据。
-
-“测试延迟”手动测量服务器地址的 TCP 建连耗时，最多并发 4 个、每个超时 3 秒；不会自动连接 Hy2、读取节点密码或改变系统代理、路由。结果不是 QUIC RTT，TCP 未响应也不表示 Hy2 不可用；启用其他代理或 TUN 时结果可能受当前网络接管影响。测试仅在页面中保留，修改端点后不再显示旧结果。
-
-本地验证：`swift test`、`Scripts/test-server-latency.sh`。后者仅使用临时回环 TCP 监听器。
+Upstream uses the MIT License. Dependency notices remain in [`Vendor/hysteria-rust/LICENSE`](../Vendor/hysteria-rust/LICENSE) and the upstream [`THIRD_PARTY_NOTICES.md`](../Vendor/hysteria-rust/THIRD_PARTY_NOTICES.md). Include the required notices when distributing the app. See the repository's [third-party notices](../THIRD_PARTY_NOTICES.md) for an overview.
