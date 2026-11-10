@@ -97,6 +97,7 @@ private struct LocalTunIntegrationSmoke {
         try expect(preserved.code == .workerExited && preserved.exitStatus == 9, "typed process error lost its metadata")
         try verifiesPeerIdentity()
         try verifiesFrameBoundaries()
+        try verifiesProcessRuleRequest()
         try verifiesIdleTimeoutAndEOF()
         try verifiesMalformedAndOversizedFrames()
         try verifiesEventDeliveryAndRootBoundary()
@@ -125,6 +126,16 @@ private struct LocalTunIntegrationSmoke {
         let first = try fixture.helper.readRequest(timeout: .seconds(1), termination: termination)
         let second = try fixture.helper.readRequest(timeout: .seconds(1), termination: termination)
         try expect(first?.command == .status && second?.command == .stop, "coalesced requests lost their message boundaries")
+    }
+
+    private static func verifiesProcessRuleRequest() throws {
+        let fixture = try SocketFixture()
+        let configuration = LocalTunConfiguration(host: "example.com", port: 443, password: "test-only",
+            directProcesses: ["/Applications/Example.app/", "Helper*"])
+        let request = try LocalTunMessageCodec.encode(LocalTunRequest(command: .start, configuration: configuration))
+        try fixture.send(request)
+        let decoded = try fixture.helper.readRequest(timeout: .seconds(1), termination: HelperTermination())
+        try expect(decoded?.command == .start && decoded?.configuration == configuration, "process-rule request was rejected or changed")
     }
 
     private static func verifiesIdleTimeoutAndEOF() throws {

@@ -68,3 +68,25 @@ func localTunControlRequestsRejectConfiguration() throws {
         #expect(try LocalTunMessageCodec.decodeRequest(control).command == command)
     }
 }
+
+
+/// Preserves optional application rules through the actual privileged-request encoder and allowlisted decoder.
+@Test func localTunRequestAcceptsBoundedProcessRules() throws {
+    for patterns: [String]? in [nil, [], ["curl", "/Applications/Example.app/", "Helper*"], (0..<64).map { "process\($0)" }] {
+        let configuration = LocalTunConfiguration(host: "example.com", port: 443, password: "test-secret", directProcesses: patterns)
+        let data = try LocalTunMessageCodec.encode(LocalTunRequest(command: .start, configuration: configuration))
+        let decoded = try LocalTunMessageCodec.decodeRequest(Data(data.dropLast()))
+        #expect(decoded.command == .start)
+        #expect(decoded.configuration == configuration)
+    }
+}
+
+/// Keeps the newly allowed rule field bounded and rejects malformed patterns before privileged work.
+@Test func localTunRequestRejectsInvalidProcessRules() throws {
+    let invalid: [[String]] = [[""], ["bad\nname"], ["relative/path"], [" leading"], ["a,b"], [String(repeating: "x", count: 1025)], (0..<65).map { "process\($0)" }]
+    for patterns in invalid {
+        let configuration = LocalTunConfiguration(host: "example.com", port: 443, password: "test-secret", directProcesses: patterns)
+        let data = try LocalTunMessageCodec.encode(LocalTunRequest(command: .start, configuration: configuration))
+        #expect(throws: (any Error).self) { try LocalTunMessageCodec.decodeRequest(Data(data.dropLast())) }
+    }
+}

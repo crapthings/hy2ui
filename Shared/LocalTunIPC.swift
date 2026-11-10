@@ -36,7 +36,7 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
 
     public func validate() throws {
         if let patterns = directProcesses {
-            guard patterns.count <= 64, patterns.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 && !$0.contains(",") && !$0.contains("\\") && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }) else {
+            guard patterns.count <= 64, patterns.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 && !$0.contains(",") && !$0.contains("\\") && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines) && (!$0.contains("/") || $0.hasPrefix("/")) && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }) else {
                 throw LocalTunProtocolError.invalidConfiguration
             }
         }
@@ -161,7 +161,7 @@ public enum LocalTunMessageCodec {
             throw LocalTunProtocolError.invalidMessage
         }
         if let configuration = dictionary["configuration"] as? [String: Any] {
-            let allowed: Set<String> = ["host", "port", "serverName", "password", "obfuscationPassword", "mtu", "dns"]
+            let allowed: Set<String> = ["host", "port", "serverName", "password", "obfuscationPassword", "mtu", "dns", "directProcesses"]
             guard Set(configuration.keys).isSubset(of: allowed) else { throw LocalTunProtocolError.invalidMessage }
         }
         let request = try JSONDecoder().decode(LocalTunRequest.self, from: data)
