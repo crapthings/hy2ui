@@ -1,0 +1,15 @@
+[workspace]
+members = ["bridge"]
+resolver = "3"
+
+[patch.crates-io]
+h3 = { path = "../.build/core/vendor/h3" }
+netdev = { path = "../.build/core/vendor/netdev" }
+quinn-proto = { path = "../.build/core/vendor/quinn-proto" }
+rustls-acme = { path = "../.build/core/vendor/rustls-acme" }
+rustls = { path = "../.build/core/vendor/rustls" }
+wfp = { path = "../.build/core/vendor/wfp" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

@@ -1,0 +1,16 @@
+.DS_Store
+.build/
+.tools/
+DerivedData/
+Native/target/
+*.xcuserstate
+xcuserdata/
+Config/Local.xcconfig
+__pycache__/
+*.pyc
+Hy2UI.xcodeproj/
+*.p12
+*.pfx
+*.key
+*.mobileprovision
+*.provisionprofile

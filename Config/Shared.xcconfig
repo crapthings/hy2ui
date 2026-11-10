@@ -1,0 +1,7 @@
+// Override these in Config/Local.xcconfig before signing for your own account.
+HY2_BUNDLE_PREFIX = dev.hy2ui
+MACOSX_DEPLOYMENT_TARGET = 14.0
+SWIFT_VERSION = 5.0
+ENABLE_HARDENED_RUNTIME = YES
+CODE_SIGN_STYLE = Automatic
+#include? "Local.xcconfig"

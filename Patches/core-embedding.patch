@@ -1,0 +1,124 @@
+--- a/crates/hysteria/src/lib.rs
++++ b/crates/hysteria/src/lib.rs
+@@ -11,6 +11,8 @@
+ mod realm_runtime;
+ mod resolver;
+ pub mod runtime;
++/// Exposes packet queues for native application extensions.
++pub mod embedded;
+ mod server_ech;
+ mod sniff;
+ mod socks5;
+--- a/crates/hysteria/src/runtime.rs
++++ b/crates/hysteria/src/runtime.rs
+@@ -359,7 +359,7 @@
+ }
+ 
+ impl ClientHandle {
+-    async fn new(config: ClientConfig, update_checks: bool) -> Result<Arc<Self>> {
++    pub(crate) async fn new(config: ClientConfig, update_checks: bool) -> Result<Arc<Self>> {
+         let lazy = config.lazy;
+         let handle = Arc::new(Self {
+             config,
+@@ -447,7 +447,7 @@
+         }
+     }
+ 
+-    async fn close(&self) {
++    pub(crate) async fn close(&self) {
+         let mut state = self.state.lock().await;
+         state.closed = true;
+         if let Some(connected) = state.connected.take() {
+--- a/crates/hysteria/src/tun.rs
++++ b/crates/hysteria/src/tun.rs
+@@ -86,6 +86,75 @@
+                 device.send(&packet?).await?;
+             }
+             Err(CliError::new("TUN packet output stopped"))
++        });
++
++        let Some(mut tcp_listener) = tcp_listener else {
++            return Err(CliError::new("TUN TCP stack was not created"));
++        };
++        let tcp_client = Arc::clone(&client);
++        let errors = Arc::new(ErrorLog::default());
++        let tcp_errors = Arc::clone(&errors);
++        tasks.spawn(async move {
++            while let Some((stream, source, destination)) = tcp_listener.next().await {
++                let client = Arc::clone(&tcp_client);
++                let errors = Arc::clone(&tcp_errors);
++                tokio::spawn(forward_tcp(stream, source, destination, client, errors));
++            }
++            Err(CliError::new("TUN TCP listener stopped"))
++        });
++
++        let Some(udp_socket) = udp_socket else {
++            return Err(CliError::new("TUN UDP stack was not created"));
++        };
++        tasks.spawn(run_udp(udp_socket, client, config.timeout()?, errors));
++
++        match tasks.join_next().await {
++            Some(Ok(result)) => result,
++            Some(Err(error)) => Err(CliError::new(format!("TUN task failed: {error}"))),
++            None => Err(CliError::new("all TUN tasks stopped")),
++        }
++    }
++
++    /// Relays packet queues through the userspace stack without creating an interface.
++    pub(super) async fn serve_packets(
++        config: TunConfig,
++        client: Arc<ClientHandle>,
++        mut incoming: mpsc::Receiver<Vec<u8>>,
++        outgoing: mpsc::Sender<Vec<u8>>,
++    ) -> Result<()> {
++        let (stack, runner, udp_socket, tcp_listener) = StackBuilder::default()
++            .stack_buffer_size(512)
++            .tcp_buffer_size(64 * 1024)
++            .enable_tcp(true)
++            .enable_udp(true)
++            .enable_icmp(true)
++            .mtu(usize::from(config.mtu()))
++            .build()
++            .map_err(|error| {
++                CliError::new(format!("failed to create TUN network stack: {error}"))
++            })?;
++        let mut tasks = tokio::task::JoinSet::new();
++        if let Some(runner) = runner {
++            tasks.spawn(async move {
++                runner
++                    .await
++                    .map_err(|error| CliError::new(format!("TUN TCP/IP stack failed: {error}")))?;
++                Err(CliError::new("TUN TCP/IP stack stopped"))
++            });
++        }
++
++        let (mut stack_sink, mut stack_stream) = stack.split();
++        tasks.spawn(async move {
++            while let Some(packet) = incoming.recv().await {
++                stack_sink.send(packet).await?;
++            }
++            Err(CliError::new("packet input closed"))
++        });
++        tasks.spawn(async move {
++            while let Some(packet) = stack_stream.next().await {
++                outgoing.send(packet?).await.map_err(|_| CliError::new("packet output closed"))?;
++            }
++            Err(CliError::new("packet output stopped"))
+         });
+ 
+         let Some(mut tcp_listener) = tcp_listener else {
+@@ -466,3 +535,14 @@
+         "TUN is only supported on Linux, macOS, and Windows",
+     )))
+ }
++
++/// Dispatches external packet queues to the shared userspace forwarding stack.
++#[cfg(target_os = "macos")]
++pub(crate) async fn serve_packets(
++    config: TunConfig,
++    client: Arc<ClientHandle>,
++    incoming: tokio::sync::mpsc::Receiver<Vec<u8>>,
++    outgoing: tokio::sync::mpsc::Sender<Vec<u8>>,
++) -> Result<()> {
++    platform::serve_packets(config, client, incoming, outgoing).await
++}

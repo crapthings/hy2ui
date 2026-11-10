@@ -1,0 +1,27 @@
+--- a/crates/hysteria/src/runtime.rs
++++ b/crates/hysteria/src/runtime.rs
+@@ -43,6 +43,16 @@
+     shutdown: impl Future<Output = ()> + Send,
+     update_checks: bool,
+ ) -> Result<()> {
++    serve_server_with_ready(config, shutdown, update_checks, |_| {}).await
++}
++
++/// Runs a server and reports its bound address after all configured listeners are ready.
++pub async fn serve_server_with_ready(
++    config: ServerConfig,
++    shutdown: impl Future<Output = ()> + Send,
++    update_checks: bool,
++    ready: impl FnOnce(SocketAddr) + Send,
++) -> Result<()> {
+     config.validate()?;
+     let (tls, _acme_runtime) = build_server_tls(&config).await?;
+     let tcp_tls = tls.clone();
+@@ -90,6 +100,7 @@
+         }
+     }
+     start_server_update_checks(update_checks);
++    ready(server_address);
+     tokio::pin!(shutdown);
+     loop {
+         tokio::select! {

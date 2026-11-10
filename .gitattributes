@@ -1,0 +1,2 @@
+# Preserve required unified-diff context spaces in stored upstream patches.
+*.patch whitespace=-blank-at-eol

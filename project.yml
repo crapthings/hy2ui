@@ -1,0 +1,138 @@
+name: Hy2UI
+options:
+  minimumXcodeGenVersion: 2.46.0
+  deploymentTarget:
+    macOS: '14.0'
+configFiles:
+  Debug: Config/Shared.xcconfig
+  Release: Config/Shared.xcconfig
+settings:
+  configs:
+    Debug:
+      HY2_NATIVE_PROFILE: debug
+    Release:
+      HY2_NATIVE_PROFILE: release
+  base:
+    SWIFT_VERSION: '5.0'
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+targets:
+  Hy2UI:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Shared
+      - Connection
+      - path: .build/generated/HelperInstallerPayload.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(HY2_BUNDLE_PREFIX).app
+        CODE_SIGN_ENTITLEMENTS: Config/App.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Hy2UI
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_NSSystemExtensionUsageDescription: Hy2UI 使用网络扩展提供 VPN 连接。
+    dependencies:
+      - target: Hy2Tunnel
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: SystemExtensions.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: Security.framework
+    postBuildScripts:
+      - name: Embed Rust client and network extension
+        script: |
+          set -eu
+          mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          native_arch="${ARCHS%% *}"
+          for binary in hysteria hy2-tun-worker hy2-local-tun-helper; do
+            cp "$SRCROOT/.build/native/$HY2_NATIVE_PROFILE/$native_arch/$binary" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary"
+          done
+          mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/SystemExtensions"
+          ditto "$BUILT_PRODUCTS_DIR/${PRODUCT_BUNDLE_IDENTIFIER}.tunnel.systemextension" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/SystemExtensions/${PRODUCT_BUNDLE_IDENTIFIER}.tunnel.systemextension"
+          if [ "${CODE_SIGNING_ALLOWED:-NO}" = YES ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            for binary in hysteria hy2-tun-worker hy2-local-tun-helper; do
+              codesign --force --options runtime --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary"
+            done
+          fi
+        basedOnDependencyAnalysis: false
+  Hy2Tunnel:
+    type: system-extension
+    platform: macOS
+    sources: [PacketTunnel, Shared]
+    settings:
+      base:
+        PRODUCT_NAME: $(HY2_BUNDLE_PREFIX).app.tunnel
+        PRODUCT_MODULE_NAME: Hy2Tunnel
+        PRODUCT_BUNDLE_IDENTIFIER: $(HY2_BUNDLE_PREFIX).app.tunnel
+        CODE_SIGN_ENTITLEMENTS: Config/Tunnel.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: Native/include/Hy2Bridge.h
+        LIBRARY_SEARCH_PATHS: $(inherited) $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(CURRENT_ARCH)
+        OTHER_LDFLAGS: $(inherited) -lhy2_bridge -framework Security -framework SystemConfiguration -framework CoreFoundation -lc++ -lresolv
+        SKIP_INSTALL: YES
+    preBuildScripts:
+      - name: Build pinned Rust engine
+        script: |
+          set -eu
+          case "$ARCHS" in *" "*) echo "Build one architecture at a time." >&2; exit 1 ;; esac
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          "$SRCROOT/Scripts/build-native.sh" "$HY2_NATIVE_PROFILE" "$ARCHS"
+        inputFiles:
+          - $(SRCROOT)/Scripts/build-native.sh
+          - $(SRCROOT)/Scripts/prepare-core.py
+          - $(SRCROOT)/Scripts/generate-installer-payload.py
+          - $(SRCROOT)/Scripts/install-local-tun-helper.sh
+          - $(SRCROOT)/Scripts/uninstall-local-tun-helper.sh
+          - $(SRCROOT)/Native/Cargo.toml
+          - $(SRCROOT)/Native/Cargo.lock
+          - $(SRCROOT)/Native/bridge/Cargo.toml
+          - $(SRCROOT)/Native/bridge/src/lib.rs
+          - $(SRCROOT)/Native/bridge/src/engine.rs
+          - $(SRCROOT)/Native/bridge/src/status.rs
+          - $(SRCROOT)/Native/bridge/src/bin/hy2-client.rs
+          - $(SRCROOT)/Native/bridge/src/bin/hy2-tun-worker.rs
+          - $(SRCROOT)/Native/bridge/src/bin/local_tun/configuration.rs
+          - $(SRCROOT)/Native/bridge/src/bin/local_tun/plan.rs
+          - $(SRCROOT)/Shared/LocalTunIPC.swift
+          - $(SRCROOT)/Shared/CoreDiagnosticParser.swift
+          - $(SRCROOT)/LocalTunHelper/main.swift
+          - $(SRCROOT)/LocalTunHelper/TrustedInstallation.swift
+          - $(SRCROOT)/LocalTunHelper/HelperSocket.swift
+          - $(SRCROOT)/LocalTunHelper/HelperInstanceLock.swift
+          - $(SRCROOT)/LocalTunHelper/PrivilegedWorker.swift
+          - $(SRCROOT)/LocalTunHelper/PrivilegedDNS.swift
+          - $(SRCROOT)/LocalTunHelper/LocalTunServer.swift
+          - $(SRCROOT)/Native/include/Hy2Bridge.h
+          - $(SRCROOT)/Patches/core-embedding.patch
+          - $(SRCROOT)/Patches/core-test-readiness.patch
+          - $(SRCROOT)/Patches/embedded.rs
+          - $(SRCROOT)/Vendor/hysteria-rust/Cargo.toml
+          - $(SRCROOT)/Vendor/hysteria-rust/Cargo.lock
+        outputFiles:
+          - $(SRCROOT)/.build/generated/HelperInstallerPayload.swift
+          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/libhy2_bridge.a
+          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hysteria
+          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-tun-worker
+          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-local-tun-helper
+        # Always let Cargo check its full source graph, including newly added files and adapter patches.
+        basedOnDependencyAnalysis: false
+    info:
+      path: Config/Tunnel-Info.plist
+      properties:
+        CFBundleDisplayName: Hy2UI VPN
+        CFBundlePackageType: SYSX
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NetworkExtension:
+          NEMachServiceName: $(TeamIdentifierPrefix)$(HY2_BUNDLE_PREFIX).shared.tunnel
+          NEProviderClasses:
+            com.apple.networkextension.packet-tunnel: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    dependencies:
+      - sdk: NetworkExtension.framework
+schemes:
+  Hy2UI:
+    build:
+      targets:
+        Hy2UI: all
