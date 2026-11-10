@@ -1,4 +1,6 @@
 //! Runs the fixed local TUN data plane only after the helper has obtained root authorization.
+// Links the shared native SDK adapter into this standalone worker.
+extern crate hy2_bridge;
 use hysteria_cli::runtime::serve_client;
 use std::{io, net::SocketAddr, time::Duration};
 
@@ -39,6 +41,7 @@ async fn run() -> Result<(), String> {
     let (user, parent) = unsafe { (libc::geteuid(), libc::getppid()) };
     validate_supervisor(user, parent)?;
     let input = configuration::read_configuration(io::stdin().lock())?;
+    hysteria_cli::desktop_routing::configure(input.direct_processes.clone())?;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "failed to observe local TUN termination".to_string())?;
     let shutdown = async {

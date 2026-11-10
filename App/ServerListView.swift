@@ -35,13 +35,13 @@ struct ServerListView: View {
                             HStack(spacing: 16) {
                                 Text(model.localized("名称"))
                                 Spacer()
-                                Text(model.localized("TCP 延迟")).frame(width: 100, alignment: .trailing)
+                                Text(model.localized("QUIC 延迟")).frame(width: 100, alignment: .trailing)
                                 Color.clear.frame(width: 28, height: 1).accessibilityHidden(true)
                             }.font(AppTheme.caption).foregroundStyle(AppTheme.muted)
                             ForEach(model.sortedServers) { server in row(server) }
                         }
                     }
-                    Text(model.localized("TCP 延迟仅供参考，不代表 Hy2 连接质量。"))
+                    Text(model.localized("通过 Hy2 握手测量连接延迟。"))
                         .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
                 }
                 if let error = model.errorMessage {
@@ -106,7 +106,7 @@ struct ServerListView: View {
             await withTaskGroup(of: (UUID, String, Int?).self) { group in
                 for server in batch {
                     group.addTask {
-                        let value = await ServerLatencyProbe.measure(host: server.host, port: server.port)
+                        let value = await model.measureServer(server)
                         return (server.id, server.serverAddress, value)
                     }
                 }

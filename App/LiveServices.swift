@@ -65,3 +65,12 @@ enum ApplicationServices {
         return ApplicationSession(editor: ProfileEditor(repository: repository), connection: connection)
     }
 }
+
+/// Exposes unprivileged proxy telemetry through the optional connection metrics boundary.
+extension CoreProcess: CoreTelemetryProviding {}
+
+/// Exposes privileged TUN telemetry through the same generation-scoped metrics boundary.
+extension LocalTunService: CoreTelemetryProviding {}
+
+/// Makes native automatic proxy configuration available through the optional PAC boundary.
+extension SystemProxy: PACProxyControlling {}

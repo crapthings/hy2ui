@@ -10,6 +10,7 @@ public final class ConnectionCoordinator {
     public private(set) var state = ConnectionState.idle
     public private(set) var message = "添加服务器，选择流量接管方式。"
     public private(set) var lastError: String?
+    public var onTelemetry: ((CoreTelemetrySource, CoreTelemetryObservation) -> Void)?
     public var onLog: ((String) -> Void)?
     private let worker: any ProxyWorkerControlling
     private let proxy: any SystemProxyControlling
@@ -49,6 +50,8 @@ public final class ConnectionCoordinator {
         vpn.onStatus = { [weak self] in self?.tunnelStatus($0, backend: .networkExtension) }
         localTunnel?.onLog = { [weak self] in self?.onLog?($0) }
         localTunnel?.onStatus = { [weak self] in self?.tunnelStatus($0, backend: .localTun) }
+        (worker as? any CoreTelemetryProviding)?.onTelemetry = { [weak self] in self?.onTelemetry?(.proxy, $0) }
+        (localTunnel as? any CoreTelemetryProviding)?.onTelemetry = { [weak self] in self?.onTelemetry?(.localTun, $0) }
         refreshRecovery()
     }
 
@@ -66,18 +69,20 @@ public final class ConnectionCoordinator {
         catch { onLog?("本地增强模式尚未就绪：\(error.localizedDescription)") }
     }
 
-    public func connect(profile: Profile, configuration: Data, credentials: Credentials) async {
+    public func connect(profile: Profile, configuration: Data, credentials: Credentials, routing: RoutingConfiguration = RoutingConfiguration()) async {
         guard !Task.isCancelled, canConnect else { return }
         guard profile.systemProxyEnabled || profile.enhancedModeEnabled else {
             report(ConfigurationError.invalid("请至少启用系统代理或增强模式。")); return
         }
+        do { try routing.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend) }
+        catch { report(error); return }
         state = .connecting
         selectedBackend = profile.enhancedModeEnabled ? profile.enhancedBackend : nil
         lastError = nil
         message = "正在连接 \(profile.serverAddress)…"
         let token = UUID()
         attempt = token
-        let task = Task { await self.start(profile: profile, configuration: configuration, credentials: credentials, token: token) }
+        let task = Task { await self.start(profile: profile, configuration: configuration, credentials: credentials, routing: routing, token: token) }
         connectionTask = task
         await withTaskCancellationHandler {
             await task.value
@@ -112,7 +117,7 @@ public final class ConnectionCoordinator {
         stopTask = nil
     }
 
-    private func start(profile: Profile, configuration: Data, credentials: Credentials, token: UUID) async {
+    private func start(profile: Profile, configuration: Data, credentials: Credentials, routing: RoutingConfiguration, token: UUID) async {
         do {
             try Task.checkCancellation()
             guard attempt == token, state == .connecting else { throw CancellationError() }
@@ -127,7 +132,12 @@ public final class ConnectionCoordinator {
                 try await worker.start(configuration: resolvedConfiguration, credentials: credentials)
                 try ensureCurrentStartup(token)
                 guard worker.isRunning else { throw ConfigurationError.invalid("Rust 客户端已停止，未启用系统代理。") }
-                try proxy.enable(httpPort: profile.httpPort, socksPort: profile.socksPort)
+                if routing.mode == .manual { try proxy.enable(httpPort: profile.httpPort, socksPort: profile.socksPort) }
+                else {
+                    guard let automatic = proxy as? any PACProxyControlling else { throw ConfigurationError.invalid("当前系统代理后端不支持 PAC。") }
+                    try await automatic.enablePAC(configuration: routing, httpPort: profile.httpPort)
+                    try ensureCurrentStartup(token)
+                }
             }
             if profile.enhancedModeEnabled {
                 try await startTunnel(profile: profile, configuration: resolvedConfiguration, token: token)

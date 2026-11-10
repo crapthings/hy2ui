@@ -200,3 +200,54 @@ fn raw_ipv6_udp_packet_roundtrips_over_ipv4_hysteria() {
     echo.finish().expect("IPv6 echo fixture shutdown");
     server.finish().expect("server fixture shutdown");
 }
+
+/// Reads real QUIC transport metrics from a loopback-only client without creating a TUN or routes.
+#[test]
+fn desktop_telemetry_reports_authenticated_quic_metrics() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    // Stops the disposable worker even if a metric assertion fails.
+    struct Worker(std::process::Child);
+    impl Drop for Worker {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    let server = ServerFixture::start().unwrap();
+    let config = serde_json::json!({
+        "server": server.address.to_string(), "auth": "test-password", "lazy": false,
+        "tls": {"sni": "localhost", "insecure": true, "pinSHA256": server.certificate_pin},
+        "socks5": {"listen": "127.0.0.1:0"}, "http": {"listen": "127.0.0.1:0"}
+    });
+    let mut worker = Worker(Command::new(env!("CARGO_BIN_EXE_hy2-client"))
+        .arg("--config-stdin").env("HY2UI_TELEMETRY", "1")
+        .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped())
+        .spawn().unwrap());
+    let mut input = worker.0.stdin.take().unwrap();
+    input.write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+    drop(input);
+    let output = worker.0.stderr.take().unwrap();
+    let (sender, receiver) = mpsc::sync_channel(4);
+    let reader = thread::spawn(move || {
+        for line in BufReader::new(output).lines().map_while(Result::ok) {
+            if let Some(metrics) = line.strip_prefix("HY2UI_METRICS ") {
+                let fields: Vec<u64> = metrics.split_whitespace().filter_map(|value| value.parse().ok()).collect();
+                let _ = sender.try_send(fields);
+            }
+        }
+    });
+    let first = receiver.recv_timeout(PHASE_TIMEOUT).unwrap();
+    let second = receiver.recv_timeout(PHASE_TIMEOUT).unwrap();
+    drop(worker);
+    reader.join().unwrap();
+    assert_eq!(first.len(), 5);
+    assert_eq!(second.len(), 5);
+    assert!(first[0] > 0 && first[1] > 0 && first[2] > 0 && first[3] > 0);
+    assert_eq!(first[0], second[0]);
+    assert!(second[1] >= first[1] && second[2] >= first[2]);
+    assert!(second[4] > first[4]);
+}

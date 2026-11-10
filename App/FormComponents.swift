@@ -35,7 +35,7 @@ struct FieldRow<Content: View>: View {
 }
 
 /// Gives editable fields a quiet fill and shows a focus ring only during keyboard editing.
-private struct FilledFieldStyle: TextFieldStyle {
+struct FilledFieldStyle: TextFieldStyle {
     @FocusState private var focused: Bool
 
     func _body(configuration: TextField<Self._Label>) -> some View {

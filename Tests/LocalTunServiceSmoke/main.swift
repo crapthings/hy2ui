@@ -273,6 +273,7 @@ private struct LocalTunServiceSmoke {
         let helper = try MockHelper(connections: 1) { descriptor, _ in
             guard try MockHelper.read(descriptor)?.command == .start else { throw LocalTunProtocolError.invalidMessage }
             try MockHelper.send(LocalTunEvent(kind: .ready), to: descriptor)
+            try MockHelper.send(LocalTunEvent(kind: .log, metrics: CoreTelemetry(connection: 1, upload: 100, download: 200, rttMicros: 30000, elapsedMicros: 1_000_000)), to: descriptor)
             for event in [LocalTunCoreEvent.disconnected, .tcpConnectFailed, .connected] {
                 try MockHelper.send(LocalTunEvent(kind: .log, message: "private-raw-upstream-text", coreEvent: event), to: descriptor)
             }
@@ -282,6 +283,8 @@ private struct LocalTunServiceSmoke {
         let service = LocalTunService(socketPath: helper.path, expectedUID: getuid())
         var statuses: [VPNConnectionStatus] = []
         var logs: [String] = []
+        var samples: [CoreTelemetryObservation] = []
+        service.onTelemetry = { samples.append($0) }
         service.onLog = { logs.append($0) }
         service.onStatus = { status in
             statuses.append(status)
@@ -291,6 +294,7 @@ private struct LocalTunServiceSmoke {
         try await restored.wait()
         precondition(statuses == [.connecting, .connected, .recoveryRequired, .connected])
         precondition(!logs.contains { $0.contains("private-raw") })
+        precondition(samples.first?.metrics == CoreTelemetry(connection: 1, upload: 100, download: 200, rttMicros: 30000, elapsedMicros: 1_000_000))
         try await service.stop()
         precondition(statuses.last == .disconnected)
         await helper.finish()

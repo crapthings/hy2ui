@@ -168,3 +168,20 @@ private final class LibraryRepository: ProfilePersisting {
     #expect(repository.secrets[first.id] == nil)
     #expect(editor.credentials.password == "second")
 }
+
+/// Reads another server's measurement credentials without selecting it or saving the active draft.
+@Test @MainActor func latencyCredentialReadPreservesSelectedDraft() throws {
+    let repository = LibraryRepository()
+    var first = Profile(); first.host = "first.example.com"
+    var second = Profile(); second.host = "second.example.com"
+    try repository.save(first, credentials: Credentials(password: "first"))
+    try repository.save(second, credentials: Credentials(password: "second"))
+    let editor = ProfileEditor(repository: repository)
+    editor.initialize()
+    editor.profile.host = ""
+    let saves = repository.saves
+    let secrets = try editor.credentialsForMeasurement(first.id)
+    #expect(secrets.password == "first")
+    #expect(editor.profile.id == second.id && editor.profile.host.isEmpty)
+    #expect(repository.library.selectedID == second.id && repository.saves == saves)
+}

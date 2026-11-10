@@ -61,3 +61,18 @@ public protocol ProfilePersisting: AnyObject {
     func save(_ profile: Profile, credentials: Credentials) throws
     func credentials(for profile: Profile) throws -> Credentials
 }
+
+/// Identifies independent core streams whose transport traffic can be safely added together.
+public enum CoreTelemetrySource: String, Sendable { case proxy, localTun }
+
+/// Supplies opt-in metric callbacks without expanding existing lifecycle test doubles.
+@MainActor
+public protocol CoreTelemetryProviding: AnyObject {
+    var onTelemetry: ((CoreTelemetryObservation) -> Void)? { get set }
+}
+
+/// Enables automatic proxy selection without changing the manual proxy lifecycle boundary.
+@MainActor
+public protocol PACProxyControlling: AnyObject {
+    func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws
+}

@@ -13,13 +13,21 @@ struct CoreProcessSmoke {
         import json, sys, time
         assert sys.argv[1:] == ['--config-stdin']
         assert json.load(sys.stdin)['auth'] == 'test-secret\\nquoted"value'
-        for line in ['connected to test', 'SOCKS5 proxy listening on test', 'HTTP proxy listening on test']:
+        for line in ['connected to test', 'SOCKS5 proxy listening on test', 'HTTP proxy listening on test', 'HY2UI_METRICS 1 120 240 35000 1000000']:
             print(line, file=sys.stderr, flush=True)
         time.sleep(30)
         """)
         let core = CoreProcess(binaryURL: runningWorker)
+        var samples: [CoreTelemetryObservation] = []
+        var logs: [String] = []
+        core.onTelemetry = { samples.append($0) }
+        core.onLog = { logs.append($0) }
         try await core.start(configuration: configuration, credentials: Credentials(password: "test-secret\nquoted\"value"))
         precondition(core.isRunning, "stdin delivery must precede readiness")
+        let metricDeadline = ContinuousClock.now + .seconds(1)
+        while samples.isEmpty && ContinuousClock.now < metricDeadline { try await Task.sleep(for: .milliseconds(10)) }
+        precondition(samples.first?.metrics == CoreTelemetry(connection: 1, upload: 120, download: 240, rttMicros: 35000, elapsedMicros: 1_000_000))
+        precondition(!logs.contains(where: { $0.contains("HY2UI_METRICS") }))
         async let firstStop: Void = core.stop()
         async let secondStop: Void = core.stop()
         _ = await (firstStop, secondStop)

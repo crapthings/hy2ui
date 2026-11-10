@@ -1,0 +1,80 @@
+--- a/crates/hysteria-transport/src/proxy.rs
++++ b/crates/hysteria-transport/src/proxy.rs
+@@ -197,6 +197,13 @@
+ }
+ 
+ impl ProxyClient {
++    /// Returns QUIC transport byte counters and path RTT without exposing addresses or credentials.
++    pub fn desktop_metrics(&self) -> (u64, u64, u64) {
++        let stats = self.connection.quinn().stats();
++        (stats.udp_tx.bytes, stats.udp_rx.bytes,
++         stats.path.rtt.as_micros().try_into().unwrap_or(u64::MAX))
++    }
++
+     #[must_use]
+     pub fn new(connection: AuthenticatedConnection) -> Self {
+         let udp = connection
+--- a/crates/hysteria/src/runtime.rs
++++ b/crates/hysteria/src/runtime.rs
+@@ -341,6 +341,45 @@
+     result
+ }
+ 
++/// Owns opt-in desktop metric sampling for exactly one authenticated QUIC connection.
++struct DesktopMetrics {
++    client: Arc<ProxyClient>,
++    identifier: u64,
++    started: std::time::Instant,
++    task: tokio::task::JoinHandle<()>,
++}
++/// Starts and formats numeric samples for one authenticated connection.
++impl DesktopMetrics {
++    fn start(client: &Arc<ProxyClient>) -> Option<Self> {
++        if std::env::var_os("HY2UI_TELEMETRY").is_none() { return None; }
++        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
++        let identifier = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++        let sample = Arc::clone(client);
++        let started = std::time::Instant::now();
++        let task = tokio::spawn(async move {
++            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
++            loop {
++                interval.tick().await;
++                Self::emit(&sample, identifier, started.elapsed());
++            }
++        });
++        Some(Self { client: Arc::clone(client), identifier, started, task })
++    }
++
++    fn emit(client: &ProxyClient, identifier: u64, elapsed: std::time::Duration) {
++        let (upload, download, rtt) = client.desktop_metrics();
++        let elapsed: u64 = elapsed.as_micros().try_into().unwrap_or(u64::MAX);
++        eprintln!("HY2UI_METRICS {identifier} {upload} {download} {rtt} {elapsed}");
++    }
++}
++/// Stops sampling and emits final counters before releasing the connection.
++impl Drop for DesktopMetrics {
++    fn drop(&mut self) {
++        self.task.abort();
++        Self::emit(&self.client, self.identifier, self.started.elapsed());
++    }
++}
++
+ struct ConnectedClient {
+     endpoint: Endpoint,
+     client: Arc<ProxyClient>,
+@@ -348,6 +387,7 @@
+     udp_enabled: bool,
+     _port_mapping: Option<hysteria_realm::PortMappingLease>,
+     disconnect_monitor: tokio::task::JoinHandle<()>,
++    _desktop_metrics: Option<DesktopMetrics>,
+ }
+ 
+ impl Drop for ConnectedClient {
+@@ -568,6 +608,7 @@
+     let client = Arc::new(ProxyClient::new(connection).with_fast_open(config.fast_open));
+     Ok(ConnectedClient {
+         disconnect_monitor: monitor_disconnect(&client),
++        _desktop_metrics: DesktopMetrics::start(&client),
+         endpoint,
+         client,
+         server_address: info.server_address,

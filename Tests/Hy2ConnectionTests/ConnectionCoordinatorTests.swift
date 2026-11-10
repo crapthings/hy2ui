@@ -61,7 +61,17 @@ private final class FakeWorker: ProxyWorkerControlling {
 
 /// Models journal ownership and restoration failure without touching system preferences.
 @MainActor
-private final class FakeProxy: SystemProxyControlling {
+private final class FakeProxy: SystemProxyControlling, PACProxyControlling {
+    var pacGate: TestGate?
+    var pacEnables = 0
+    var pacConfiguration: RoutingConfiguration?
+
+    func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws {
+        pacEnables += 1; pacConfiguration = configuration
+        await pacGate?.suspend()
+        try Task.checkCancellation()
+        needsRecovery = true
+    }
     var needsRecovery = false
     var enables = 0
     var restores = 0
@@ -469,4 +479,35 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     #expect(coordinator.state == .connected && coordinator.lastError == nil)
     #expect(coordinator.enhancedModeActive && coordinator.hasOwnedResources)
     await coordinator.disconnect()
+}
+
+
+/// Verifies PAC startup and disconnect share the existing proxy recovery lifecycle.
+@Test @MainActor func automaticProxyLifecycle() async {
+    let worker = FakeWorker(); let proxy = FakeProxy()
+    let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
+    var profile = Profile(); profile.systemProxyEnabled = true; profile.enhancedModeEnabled = false
+    var routing = RoutingConfiguration(); routing.mode = .generatedPAC
+    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials(), routing: routing)
+    #expect(coordinator.state == .connected)
+    #expect(proxy.pacEnables == 1 && proxy.enables == 0)
+    #expect(proxy.pacConfiguration == routing)
+    await coordinator.disconnect()
+    #expect(!proxy.needsRecovery && worker.stops == 1)
+}
+
+/// Verifies cancellation while PAC starts restores resources before another attempt can connect.
+@Test @MainActor func automaticProxyCancellation() async {
+    let worker = FakeWorker(); let proxy = FakeProxy(); let gate = TestGate(); proxy.pacGate = gate
+    let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
+    var profile = Profile(); profile.systemProxyEnabled = true; profile.enhancedModeEnabled = false
+    var routing = RoutingConfiguration(); routing.mode = .generatedPAC
+    let attempt = Task { await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials(), routing: routing) }
+    await gate.waitUntilEntered()
+    let disconnect = Task { await coordinator.disconnect() }
+    while coordinator.state != .stopping { await Task.yield() }
+    gate.release()
+    await attempt.value; await disconnect.value
+    #expect(coordinator.state == .idle)
+    #expect(!proxy.needsRecovery && worker.stops == 1 && proxy.restores > 0)
 }

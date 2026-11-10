@@ -3,6 +3,7 @@ members = ["bridge"]
 resolver = "3"
 
 [patch.crates-io]
+netstack-smoltcp = { path = "../.build/core/vendor/netstack-smoltcp" }
 h3 = { path = "../.build/core/vendor/h3" }
 netdev = { path = "../.build/core/vendor/netdev" }
 quinn-proto = { path = "../.build/core/vendor/quinn-proto" }

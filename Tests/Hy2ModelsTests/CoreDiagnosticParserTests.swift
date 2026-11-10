@@ -69,3 +69,20 @@ import Testing
         #expect(parser.drain() == [.tcpConnectFailed])
     }
 }
+
+/// Verifies allowlisted TCP diagnostics retain useful categories without exposing upstream text or targets.
+@Test func structuredTCPFailuresAreClassifiedSafely() {
+    let cases: [(String, LocalTunCoreEvent)] = [
+        ("connect_timeout", .tcpConnectTimedOut), ("reset", .tcpReset), ("broken_pipe", .tcpBrokenPipe),
+        ("transfer_timeout", .tcpTransferTimedOut), ("unexpected_eof", .tcpUnexpectedEOF),
+        ("transfer_io", .tcpTransferFailed), ("capacity", .tcpCapacity)
+    ]
+    for (token, event) in cases {
+        var parser = CoreDiagnosticParser()
+        parser.consume(Data("HY2UI_TCP_ERROR \(token) (4 additional TUN errors suppressed)\n".utf8))
+        #expect(parser.drain() == [event])
+    }
+    var parser = CoreDiagnosticParser()
+    parser.consume(Data("HY2UI_TCP_ERROR secret-target-and-password\n".utf8))
+    #expect(parser.drain().isEmpty)
+}

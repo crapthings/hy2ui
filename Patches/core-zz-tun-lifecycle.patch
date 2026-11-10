@@ -1,0 +1,153 @@
+--- a/crates/hysteria/src/tun.rs
++++ b/crates/hysteria/src/tun.rs
+@@ -52,7 +52,7 @@
+ 
+         let (stack, runner, udp_socket, tcp_listener) = StackBuilder::default()
+             .stack_buffer_size(512)
+-            .tcp_buffer_size(64 * 1024)
++            .tcp_buffer_size(512)
+             .enable_tcp(true)
+             .enable_udp(true)
+             .enable_icmp(true)
+@@ -88,20 +88,13 @@
+             Err(CliError::new("TUN packet output stopped"))
+         });
+ 
+-        let Some(mut tcp_listener) = tcp_listener else {
++        let Some(tcp_listener) = tcp_listener else {
+             return Err(CliError::new("TUN TCP stack was not created"));
+         };
+         let tcp_client = Arc::clone(&client);
+         let errors = Arc::new(ErrorLog::default());
+         let tcp_errors = Arc::clone(&errors);
+-        tasks.spawn(async move {
+-            while let Some((stream, source, destination)) = tcp_listener.next().await {
+-                let client = Arc::clone(&tcp_client);
+-                let errors = Arc::clone(&tcp_errors);
+-                tokio::spawn(forward_tcp(stream, source, destination, client, errors));
+-            }
+-            Err(CliError::new("TUN TCP listener stopped"))
+-        });
++        tasks.spawn(run_tcp(tcp_listener, tcp_client, tcp_errors));
+ 
+         let Some(udp_socket) = udp_socket else {
+             return Err(CliError::new("TUN UDP stack was not created"));
+@@ -124,7 +117,7 @@
+     ) -> Result<()> {
+         let (stack, runner, udp_socket, tcp_listener) = StackBuilder::default()
+             .stack_buffer_size(512)
+-            .tcp_buffer_size(64 * 1024)
++            .tcp_buffer_size(512)
+             .enable_tcp(true)
+             .enable_udp(true)
+             .enable_icmp(true)
+@@ -157,20 +150,13 @@
+             Err(CliError::new("packet output stopped"))
+         });
+ 
+-        let Some(mut tcp_listener) = tcp_listener else {
++        let Some(tcp_listener) = tcp_listener else {
+             return Err(CliError::new("TUN TCP stack was not created"));
+         };
+         let tcp_client = Arc::clone(&client);
+         let errors = Arc::new(ErrorLog::default());
+         let tcp_errors = Arc::clone(&errors);
+-        tasks.spawn(async move {
+-            while let Some((stream, source, destination)) = tcp_listener.next().await {
+-                let client = Arc::clone(&tcp_client);
+-                let errors = Arc::clone(&tcp_errors);
+-                tokio::spawn(forward_tcp(stream, source, destination, client, errors));
+-            }
+-            Err(CliError::new("TUN TCP listener stopped"))
+-        });
++        tasks.spawn(run_tcp(tcp_listener, tcp_client, tcp_errors));
+ 
+         let Some(udp_socket) = udp_socket else {
+             return Err(CliError::new("TUN UDP stack was not created"));
+@@ -184,6 +170,30 @@
+         }
+     }
+ 
++    /// Owns bounded TCP relays so shutdown cancels them and completed tasks are reaped promptly.
++    async fn run_tcp(mut listener: netstack_smoltcp::TcpListener, client: Arc<ClientHandle>, errors: Arc<ErrorLog>) -> Result<()> {
++        let permits = Arc::new(tokio::sync::Semaphore::new(256));
++        let mut relays = tokio::task::JoinSet::new();
++        loop {
++            tokio::select! {
++                biased;
++                result = relays.join_next(), if !relays.is_empty() => {
++                    if let Some(Err(error)) = result { errors.report(format_args!("TUN TCP relay task failed: {error}")); }
++                }
++                accepted = listener.next() => {
++                    let Some((stream, source, destination)) = accepted else { return Err(CliError::new("TUN TCP listener stopped")); };
++                    let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
++                        errors.report(format_args!("HY2UI_TCP_ERROR capacity"));
++                        drop(stream); continue;
++                    };
++                    let (client, errors) = (Arc::clone(&client), Arc::clone(&errors));
++                    relays.spawn(async move { let _permit = permit; forward_tcp(stream, source, destination, client, errors).await; });
++                }
++            }
++        }
++    }
++
++    /// Relays one TCP stream with a bounded tunnel-opening phase and safe error classification.
+     async fn forward_tcp(
+         mut stream: netstack_smoltcp::TcpStream,
+         source: SocketAddr,
+@@ -197,20 +207,25 @@
+                 Ok(stream) => { eprintln!("HY2UI_ROUTE_DIRECT tcp"); Box::new(stream) }
+                 Err(error) => { errors.report(format_args!("TUN TCP {source} -> {destination} connect failed: {error}")); return; }
+             }
+-        } else { match client.tcp(&destination.to_string()).await {
+-            Ok(tunnel) => Box::new(tunnel),
+-            Err(error) => {
++        } else { match tokio::time::timeout(Duration::from_secs(15), client.tcp(&destination.to_string())).await {
++            Ok(Ok(tunnel)) => Box::new(tunnel),
++            Err(_) => { errors.report(format_args!("HY2UI_TCP_ERROR connect_timeout")); return; }
++            Ok(Err(error)) => {
+                 errors.report(format_args!(
+                     "TUN TCP {source} -> {destination} connect failed: {error}"
+                 ));
+                 return;
+             }
+         }};
+-        eprintln!("TUN TCP {source} -> {destination}");
+         if let Err(error) = copy_bidirectional(&mut stream, &mut tunnel).await {
+-            errors.report(format_args!(
+-                "TUN TCP {source} -> {destination} transfer failed: {error}"
+-            ));
++            let kind = match error.kind() {
++                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted => "reset",
++                std::io::ErrorKind::BrokenPipe => "broken_pipe",
++                std::io::ErrorKind::TimedOut => "transfer_timeout",
++                std::io::ErrorKind::UnexpectedEof => "unexpected_eof",
++                _ => "transfer_io",
++            };
++            errors.report(format_args!("HY2UI_TCP_ERROR {kind}"));
+         }
+     }
+ 
+@@ -265,8 +280,11 @@
+             }
+         });
+         let mut flows = HashMap::<(SocketAddr, SocketAddr), mpsc::Sender<Vec<u8>>>::new();
++        let mut last_cleanup = Instant::now();
+         while let Some((packet, source, destination)) = read_half.next().await {
+-            flows.retain(|_, sender| !sender.is_closed());
++            if last_cleanup.elapsed() >= Duration::from_secs(1) || flows.len() >= 1024 {
++                flows.retain(|_, sender| !sender.is_closed()); last_cleanup = Instant::now();
++            }
+             let key = (source, destination);
+             let packet = if let Some(sender) = flows.get(&key) {
+                 let Some(packet) = enqueue_packet(sender, packet) else {
+@@ -276,7 +294,8 @@
+             } else {
+                 packet
+             };
+-            let (sender, receiver) = mpsc::channel(256);
++            if flows.len() >= 1024 { continue; }
++            let (sender, receiver) = mpsc::channel(64);
+             sender
+                 .try_send(packet)
+                 .map_err(|error| CliError::new(error.to_string()))?;

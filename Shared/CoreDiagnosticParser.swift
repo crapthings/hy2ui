@@ -5,6 +5,7 @@ public struct CoreDiagnosticParser: Sendable {
     private var line: [UInt8] = []
     private var discardingLine = false
     private var pending: [LocalTunCoreEvent] = []
+    private var telemetry: [CoreTelemetry] = []
     private var connectionSeen = false
     private var tunnelSeen = false
     public var ready: Bool { connectionSeen && tunnelSeen }
@@ -29,6 +30,11 @@ public struct CoreDiagnosticParser: Sendable {
         return result
     }
 
+    public mutating func drainTelemetry() -> [CoreTelemetry] {
+        defer { telemetry.removeAll(keepingCapacity: true) }
+        return telemetry
+    }
+
     private static func hasSyntheticTarget(_ text: String) -> Bool {
         guard let arrow = text.range(of: " -> "),
               let failure = text.range(of: " connect failed: ", range: arrow.upperBound..<text.endIndex) else { return false }
@@ -42,8 +48,26 @@ public struct CoreDiagnosticParser: Sendable {
     }
 
     private mutating func observe(_ text: String) {
+        if let sample = CoreTelemetry.parse(text) {
+            if telemetry.count == 8 { telemetry.removeFirst() }
+            telemetry.append(sample)
+            return
+        }
         let event: LocalTunCoreEvent?
-        if text.hasPrefix("connected to ") {
+        if text.hasPrefix("HY2UI_TCP_ERROR ") {
+            switch text.split(separator: " ").dropFirst().first {
+            case "connect_timeout": event = .tcpConnectTimedOut
+            case "reset": event = .tcpReset
+            case "broken_pipe": event = .tcpBrokenPipe
+            case "transfer_timeout": event = .tcpTransferTimedOut
+            case "unexpected_eof": event = .tcpUnexpectedEOF
+            case "capacity": event = .tcpCapacity
+            case "transfer_io": event = .tcpTransferFailed
+            default: event = nil
+            }
+        } else if text == "HY2UI_ROUTE_DIRECT tcp" || text == "HY2UI_ROUTE_DIRECT udp" {
+            event = .directFlow
+        } else if text.hasPrefix("connected to ") {
             connectionSeen = true
             event = .connected
         } else if text.hasPrefix("TUN proxy listening on interface ") {

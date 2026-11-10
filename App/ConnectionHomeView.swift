@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// Presents a paper-based connection panel with one primary action and the selected server summary.
+/// Combines connection controls with live transport metrics and daily traffic totals.
 struct ConnectionHomeView: View {
     @Bindable var model: AppModel
     var openSettings: () -> Void
     var editServer: () -> Void
+    var openActivity: () -> Void
 
     private var connected: Bool { model.state == .connected }
     private var working: Bool { model.state == .connecting || model.state == .stopping || model.isManagingHelper }
@@ -21,7 +22,7 @@ struct ConnectionHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
-                Text(model.localized(model.state.title)).font(AppTheme.pageTitle)
+                Text(model.localized("概览")).font(AppTheme.pageTitle)
                 VStack(alignment: .leading, spacing: 24) {
                     HStack(spacing: 12) {
                         Image(systemName: "server.rack").font(.system(size: 21, weight: .regular))
@@ -36,6 +37,11 @@ struct ConnectionHomeView: View {
                             }
                         }
                         Spacer(minLength: 8)
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(model.localized("QUIC 延迟")).font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                            Text(model.state == .connected ? model.dashboard.latencyMilliseconds.map { "\(Int($0.rounded())) ms" } ?? "—" : "—")
+                                .font(AppTheme.body).monospacedDigit()
+                        }
                         Button(model.hasServer ? model.localized("编辑") : model.localized("添加"), action: editServer)
                             .buttonStyle(AppActionStyle()).disabled(model.editingDisabled)
                     }
@@ -59,6 +65,7 @@ struct ConnectionHomeView: View {
                 }
                 .padding(28)
                 .background(AppTheme.cloud, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                DashboardTrafficView(model: model, openActivity: openActivity)
                 VStack(alignment: .leading, spacing: 12) {
                     if model.requiresHelperInstallation {
                         Button(model.localized("前往设置安装增强模式"), action: openSettings)

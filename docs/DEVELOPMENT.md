@@ -12,7 +12,25 @@ The sidebar shows up to three servers, ordered by pins, most recent successful u
 
 The title bar has Enhanced Mode and System Proxy menus. A green dot means active, amber means selected but waiting to connect, and gray means off. Install and manage the background service in Settings. The first-run guide is optional. Installation status is plain red Not Installed or green Installed text. Passwords are stored in the macOS Keychain, using each server's UUID.
 
-Test Latency measures TCP connection setup time to each server address. It runs only when requested, with up to four tests at once and a three-second timeout per server. It does not connect through the Hy2 protocol, read passwords, or change system network settings. TCP latency is not QUIC RTT, and a TCP timeout does not mean Hy2 is unavailable. An active proxy or TUN may affect results. Measurements stay on the page and are hidden if the endpoint changes.
+Test Latency opens a short authenticated Hy2 connection and reads its QUIC path RTT. Each test uses a disposable worker with loopback listeners on OS-assigned ports. It reads that server's Keychain credentials but never changes system proxy, DNS, TUN, or route settings. Tests run only when requested, with up to four at once. Startup is bounded by the normal core timeout. The worker resolves the server and preserves TLS SNI. DNS work stays inside that disposable process, so cancelling a test can stop it without waiting for a separate UI resolver task. Measurements stay on the page and are hidden if the endpoint changes. The active network path can affect results.
+
+## Dashboard and accounting
+
+Overview keeps the connection controls, current QUIC latency, upload and download rates, and today's and this month's traffic in the same window. Detailed process activity has its own navigation page.
+
+Local TUN and System Proxy report opt-in QUIC metrics once per second. The pinned core is adapted in `Patches/core-traffic-metrics.patch`; the submodule is not modified. Samples contain only a connection ID, cumulative byte counters, RTT, and a relative monotonic timestamp. The helper forwards numeric samples over its existing authenticated socket. Metric frames do not enter the user log.
+
+Counters cover QUIC UDP payload bytes, including QUIC overhead and retransmissions, but not IP or UDP headers. System Proxy and Local TUN streams are counted separately and then added. Server latency probes are not included. Worker generations and connection IDs prevent reconnects or delayed samples from counting the same traffic twice. Rates use core sampling time rather than IPC arrival time, so queued startup frames cannot inflate them. Rates reset when disconnected or when reporting stops. The Network Extension backend does not report these metrics yet.
+
+Daily totals are stored in `~/Library/Application Support/Hy2UI/traffic.json` with user-only permissions. Totals use local calendar dates and retain up to 400 days. The app saves about every 15 seconds and when disconnecting. A crash can lose the last unsaved samples, and sample boundaries can shift a small amount of usage across midnight. These are local usage estimates, not a provider billing meter. Unknown or corrupt history files are preserved rather than overwritten. History begins when this version is used; it does not reconstruct older usage.
+
+## Process network activity
+
+Network Activity uses the built-in `nettop` tool without administrator privileges. While the page is open, it samples process counters about every two seconds and displays upload and download rates plus received and sent bytes. It stops sampling when the page closes. If macOS does not allow a sample, the page reports that activity is unavailable.
+
+These are system process counters, not a list of flows proven to use Hy2UI. They include direct, proxied, and local connections. An app and the forwarding worker can both appear, so their values must not be added to the Dashboard totals. System counters can reset when processes or sockets end; decreasing counters reset the rate baseline rather than producing negative usage. Process activity is not saved to disk and is not used to enforce routing rules.
+
+Planned bypass and routing work is tracked in the [roadmap](ROADMAP.md).
 
 ## Architecture
 
@@ -173,6 +191,7 @@ python3 -m unittest discover -s Tests/NetworkDiagnostics
 Scripts/test-helper-installer.sh
 Scripts/test-server-library.sh
 Scripts/test-server-latency.sh
+Scripts/test-dashboard.sh
 Scripts/test-core-process.sh
 Scripts/test-local-tun.sh
 Scripts/test-local-tun-service.sh
@@ -184,7 +203,7 @@ Installer tests inject an authorization runner to cover install, uninstall, canc
 
 Swift tests cover configuration encoding, address validation, proxy ownership, cancellation, stale callbacks, server ordering, and connection lifecycles with mock services. Configuration or Keychain errors must not block recovery, and failed recovery must not discard resource ownership. Process tests use mock workers to check stdin delivery, startup exits, and repeated stops.
 
-Rust tests cover ABI arguments, worker input limits, and local Hysteria packet round trips. The latency smoke test uses an ephemeral loopback TCP listener. Network tests use loopback only; they do not create TUN interfaces or change system proxies, DNS, or routes.
+Rust tests cover ABI arguments, worker input limits, and local Hysteria packet round trips. The latency smoke test uses a mock core to check QUIC metric selection and cancellation. A Rust integration test verifies real metric frames against an ephemeral loopback Hysteria server. Network tests use loopback only; they do not create TUN interfaces or change system proxies, DNS, or routes.
 
 ## Code structure and data migration
 
@@ -215,3 +234,53 @@ The core is [crapthings/hysteria-rust](https://github.com/crapthings/hysteria-ru
 Keep `Native/Cargo.lock`. It is derived from the upstream lockfile and includes customized Quinn and Rustls dependencies. Do not replace it with a lockfile that selects the latest registry versions.
 
 Upstream uses the MIT License. Dependency notices remain in [`Vendor/hysteria-rust/LICENSE`](../Vendor/hysteria-rust/LICENSE) and the upstream [`THIRD_PARTY_NOTICES.md`](../Vendor/hysteria-rust/THIRD_PARTY_NOTICES.md). Include the required notices when distributing the app. See the repository's [third-party notices](../THIRD_PARTY_NOTICES.md) for an overview.
+
+## PAC and application bypass
+
+Settings supports three system proxy modes: fixed local proxies, an automatic PAC script, and an external HTTP(S) PAC URL. Automatic PAC runs on a random loopback-only URL for the connection lifetime. It bypasses configured domain suffixes and, optionally, local names and literal private IPv4/IPv6 addresses. It does not resolve public domain names to guess whether their address is private. Other traffic uses the configured local HTTP proxy without a `DIRECT` fallback. External PAC scripts must name the current local proxy endpoint themselves. PAC works only in applications that honor the system PAC setting; it does not configure shell proxy environment variables.
+
+PAC and Enhanced Mode cannot run together in this implementation: a PAC `DIRECT` decision would still be captured by TUN. The proxy recovery journal restores PAC enable, URL and inline script as one owned group. Changes made by another application are preserved.
+
+Application bypass is available only with local Enhanced Mode and System Proxy disabled. Rules accept case-sensitive executable names, `*` and `?` globs, absolute paths, and trailing-slash application bundle prefixes such as `/Applications/Example.app/`. This is a supported subset of Surge-style process patterns, not a full Surge configuration importer. Rules are stored separately from server credentials and apply on reconnect.
+
+The worker captures physical interface indices before installing TUN routes. The C adapter uses public SDK `libproc` socket structures to identify TCP and UDP owners, and only matched outbound sockets receive `IP_BOUND_IF` or `IPV6_BOUND_IF`. No extra global routes are installed for application bypass. Unknown, inaccessible, ambiguous or timed-out ownership stays proxied. A selected direct connection that fails does not silently switch to the proxy. Interface changes require reconnecting. Protected processes may not expose enough metadata, even to the helper.
+
+Ownership lookups run on a blocking pool with four permits. A shared in-memory five-tuple index holds immutable snapshots for up to 250 ms. Hits revalidate PID start time, executable path, socket identity and the socket tuple with targeted SDK calls; they do not enumerate all processes. Cold misses share a serialized full snapshot refresh with a 20 ms minimum refresh interval. Each full scan has a 150 ms work budget and a 32,768-record limit. Partial, oversized and failed scans are discarded. The scan cannot be atomic with application socket creation, so ambiguous or unobserved ownership stays proxied. There is no process scan when rules are empty. This is an attribution mechanism, not a security boundary or a complete per-process VPN exclusion API. QUIC traffic totals exclude direct sockets; the Network Activity page remains system-wide activity.
+
+The narrow macOS adapter in `Patches/desktop-routing.rs` and `Patches/desktop-process-owners.rs` documents each unsafe call to the SDK shim. `core-unsafe-adapter.patch` changes the generated workspace lint from `forbid` to `deny`, keeping unsafe code denied elsewhere while permitting this explicit adapter. The pinned submodule is unchanged.
+
+Run `Scripts/test-routing.sh`, `python3 Scripts/test-process-routing.py`, `swift test`, and `cargo test --locked --manifest-path Native/Cargo.toml -p hy2-bridge`. These checks use loopback sockets and fake proxy controllers. They do not install a helper or change system proxies, TUN, DNS, or routes. Real privileged routing and protected application attribution require a separate manual test.
+
+Network Activity offers a per-process context menu for `DIRECT` or default rules. It saves the complete executable path through `ProcessRoutingPolicy`, reusing the same configuration as Settings and the TUN matcher. PID and process start time are checked before saving; missing metadata disables the shortcut. The rule column shows saved configuration, not live flow attribution. Changes apply on the next connection, including edits made during an active connection. `DIRECT` is available only for local Enhanced Mode without System Proxy. Returning to default removes the exact-path shortcut; shared name, wildcard or app-bundle rules must be edited in Settings to avoid changing other processes.
+
+
+## Rule indexes and storage
+
+Transient process ownership stays in memory, not SQLite or RocksDB: process and socket identities must be rediscovered after restart. Existing validated rule preferences remain persisted separately. No background scan runs while the worker is idle, and an empty rule configuration does not initialize the ownership index. Every reconnect creates a new worker and fresh indexes, so rule changes cannot reuse old decisions.
+
+The compiled process rule index uses exact-name and exact-path hash sets, directory-prefix keys checked against path ancestors, and pre-parsed wildcard patterns. Matching repeated executable paths is memoized within each snapshot. The flow index has separate keys for TCP/UDP and IPv4/IPv6; unconnected UDP uses a local-port index and requires an unambiguous visible owner. A cached shared UDP owner is observational metadata, not a security boundary: another socket may appear between snapshot collection and lookup. Unknown owners remain proxied.
+
+Automatic PAC compiles its domain rules into an object lookup table once per script load. Each request checks the full host and successive suffix keys, with own-property checks to avoid inherited JavaScript properties. It handles duplicate domain entries and a trailing DNS dot. TUN domain-to-flow attribution remains future work; these PAC domain keys do not imply a TUN DNS index.
+
+Cache tests cover concurrent refresh sharing, repeated hits without scans, stale owners, expiration, failed and oversized snapshots, protocol/family separation, exact-owner conflicts and ambiguous UDP. Native loopback checks cover process exit, changed process start time, changed socket identity and executable path. These tests do not change local system networking.
+
+## Stable network activity interaction
+
+Network Activity keeps established row positions while updating counters. The first batch is ordered by displayed process name; later discoveries append at the bottom. Column clicks sort the current snapshot once, and Re-sort applies the selected ordering to the latest values. Sampling does not continuously re-sort. Search matches displayed and reported process names, PID, and available executable paths.
+
+Rows missing from a successful sample show zero rates and “No recent activity” for ten seconds. This label does not claim that the process exited. Selected rows remain until deselected. Native menu tracking defers membership changes while counters can continue updating. Stable UUIDs and known process start times prevent a reused PID from inheriting selection or a rate baseline. Unavailable executable metadata disables rule actions; any later action still revalidates identity.
+
+Pause updates freezes the displayed snapshot and skips new nettop polls; it does not pause the connection. Resume discards the old rate baseline, avoiding an average over the paused period. Returning after a missing sample also establishes a fresh baseline. The view retains its native table identity, disables update animations, and reserves one status line so transient messages do not shift the table.
+
+The context menu supports visible multi-selection, batch DIRECT/default-rule changes, and copying names, PIDs or paths. Batch rule edits validate every selected identity and persist once; a shared-rule conflict or rule limit rejects the entire edit. Only the visible context targets are affected when search hides other selected rows.
+
+Run `Scripts/test-process-activity.sh` for deterministic table behavior checks with injected counters and times. `Scripts/test-routing.sh` also covers rejection of partially valid batch edits. These checks do not start nettop or change system networking; the existing PAC checks use loopback only.
+
+
+## Prepared TUN dependencies
+
+The generated client core pins `tun-rs 2.8.18` and adapts `netstack-smoltcp 0.2.5` with `smoltcp 0.14.0`. The netstack source archive is verified against SHA-256 `f5abcddf2ae2d1642c492c1043041548200a176a3b5c3db6e5169ab1ed8d62b8`, extracted into the immutable generation, and patched outside the Cargo registry. Source preparation can reuse a verified Cargo archive or download that exact public archive. No signing material is involved. Dependency updates also require the compatible Tokio 1.54 lockfile resolution.
+
+`Patches/core-zz-tun-lifecycle.patch` bounds packet queues, owns TCP relay tasks, limits concurrent relays and tunnel-opening time, and emits safe error categories. The dependency adapter deduplicates SYN retransmissions, separates write-half completion from socket retirement, and resets abandoned streams. See [the investigation and regression coverage](TUN-INVESTIGATION.md) for details. Helper installation and real network changes remain user initiated.
+
+Use `cargo test --locked --manifest-path Native/Cargo.toml -p hy2-bridge` for TCP lifecycle and loopback forwarding coverage, and `python3 Scripts/diagnose-tun-stack.py` for the standalone in-memory probe. Add `--upstream` to the latter to reproduce the unpatched behavior. The fixed tests preserve queued payload data, exercise both address families and verify tuple reuse beyond the protocol socket limit.

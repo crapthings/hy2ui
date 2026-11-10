@@ -16,7 +16,7 @@ final class PrivilegedWorker {
         try configuration.validate()
         process.executableURL = URL(fileURLWithPath: LocalTunWire.workerPath)
         process.arguments = ["--config-stdin"]
-        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/var/root", "HYSTERIA_DISABLE_UPDATE_CHECK": "1"]
+        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/var/root", "HYSTERIA_DISABLE_UPDATE_CHECK": "1", "HY2UI_TELEMETRY": "1"]
         process.standardInput = input
         process.standardOutput = FileHandle.nullDevice
         process.standardError = output
@@ -59,6 +59,7 @@ final class PrivilegedWorker {
     func takeDiagnosticEvents() -> [LocalTunEvent] {
         lock.lock(); defer { lock.unlock() }
         return diagnostics.drain().map { LocalTunEvent(kind: .log, message: $0.message, coreEvent: $0) }
+            + diagnostics.drainTelemetry().map { LocalTunEvent(kind: .log, metrics: $0) }
     }
 
     func stop() throws {
@@ -70,6 +71,15 @@ final class PrivilegedWorker {
         }
         guard !process.isRunning else { throw HelperFailure("TUN 客户端尚未退出，请重试恢复。") }
         lock.lock()
+        // Capture the final metric frame emitted during graceful core shutdown before closing the pipe.
+        if !outputClosed {
+            var remaining = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = read(output.fileHandleForReading.fileDescriptor, &remaining, remaining.count)
+                guard count > 0 else { break }
+                diagnostics.consume(Data(remaining.prefix(count)))
+            }
+        }
         outputClosed = true
         output.fileHandleForReading.readabilityHandler = nil
         try? output.fileHandleForReading.close()

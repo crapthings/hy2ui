@@ -50,6 +50,7 @@ struct AppSettingsView: View {
                     Text(model.localized("请先添加服务器"))
                         .foregroundStyle(AppTheme.muted).padding(.vertical)
                 }
+                RoutingSettingsView(model: model)
                 HelperManagementView(model: model)
                 FormGroup(title: model.localized("增强模式引导")) {
                     HStack(spacing: AppTheme.formSpacing) {

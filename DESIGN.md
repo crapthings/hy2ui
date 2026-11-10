@@ -1,26 +1,33 @@
-# Hy2UI 设计约定
+# Hy2UI design notes
 
-以原生桌面体验为基础，让信息有层次，让操作有余地。
+Use native desktop behavior, clear information hierarchy, and enough space to keep the interface calm.
 
-## 配色
+## Color
 
-`App/AppTheme.swift` 是设计变量的唯一来源。页面使用纸白与近黑文字，主要操作使用蓝色 `#024AD8`；浅灰区分卡片，绿色与红色表达安装状态。深色模式使用独立适配色。玻璃质感只保留在侧栏，并遵循系统“减少透明度”。
+`App/AppTheme.swift` is the source of truth for design tokens. Use a paper-white canvas, near-black text, and blue `#024AD8` for the main action. Quiet gray surfaces define groups. Green and red communicate installation status. Dark mode has its own adaptive palette. Keep native glass in the sidebar only, and respect Reduce Transparency.
 
-## 布局
+## Layout
 
-- 页面标题 24pt，分组标题 14pt semibold，正文 13pt，辅助文字 12pt。
-- 页面留白 32pt，卡片间距与内边距 24pt，字段间距 20pt。
-- 分组标题位于卡片外；字段从上到下依次为标签、输入项、必要的帮助文字。
-- 卡片不加装饰边框，圆角 10pt；输入控件高 36pt、圆角 6pt，聚焦时显示蓝色焦点环。
-- 按钮高 36pt，左右留白 16pt，圆角 4pt。菜单展开时保留系统键盘与无障碍行为。
+- Page titles: 24pt. Section titles: 14pt semibold. Body: 13pt. Secondary text: 12pt.
+- Page padding: 32pt. Card padding and section gaps: 24pt. Field gaps: 20pt.
+- Place section headings outside their cards. Stack each field label, input, and necessary help text vertically.
+- Cards have no decorative border and use 10pt corners. Inputs are 36pt tall with 6pt corners and a focus-only blue ring.
+- Buttons are 36pt tall with 16pt horizontal padding and 4pt corners. Preserve native menu keyboard and accessibility behavior.
+- Select controls fill the input column. Keep the selected value on the left and a single chevron on the right. Hide repeated labels inside the menu.
 
-## 导航与状态
+## Navigation and status
 
-- 侧栏最多展示三个服务器，添加入口放在“服务器”标题右侧，“更多”进入管理列表。
-- 标题栏右侧菜单使用状态灯、名称与箭头：高 32pt，左右留白 12pt，圆角 4pt。
-- 运行中用绿灯，待连接用黄灯，关闭用灰灯；只有状态灯着语义色，文字保持中性。
-- 设置中的后台状态仅为红色“未安装”或绿色“已安装”，不加圆点或背景。
+- Show up to three servers in the sidebar. Put the add button beside the Servers heading. More opens the management list.
+- Place capture menus at the trailing edge of the window toolbar. Each has a status dot, name, and chevron, with 32pt height, 12pt horizontal padding, and 4pt corners.
+- Green means active, amber means waiting to connect, and gray means off. Keep the menu text neutral; only the status dot uses semantic color.
+- In Settings, installation status is plain red Not Installed or green Installed text, without a dot or background.
 
-## 文案
+## Overview and activity
 
-保持短而明确，避免重复字段标题、常驻长说明和例行保存提示。保留校验错误、恢复操作与删除确认。中文、英文共用同一套布局与行为。
+Keep connection controls at the top of Overview. Use a two-column grid of quiet cards for upload, download, today, and this month. Display active QUIC RTT beside the selected server. Use tabular numbers and binary byte units.
+
+Detailed system process activity has a separate navigation page. State its scope clearly and keep its counters separate from connection totals. Show unavailable data honestly rather than generating placeholder measurements.
+
+## Copy
+
+Keep labels short and useful. Avoid repeated headings, permanent long instructions, and routine save messages. Retain validation errors, recovery actions, and deletion confirmations. Chinese and English share the same layout and behavior.

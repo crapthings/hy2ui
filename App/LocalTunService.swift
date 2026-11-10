@@ -8,6 +8,7 @@ import Hy2Connection
 /// Controls a generation-scoped local TUN session and confirms privileged cleanup before releasing ownership.
 @MainActor
 final class LocalTunService: VPNConnectionControlling {
+    var onTelemetry: ((CoreTelemetryObservation) -> Void)?
     var onStatus: ((VPNConnectionStatus) -> Void)?
     var onLog: ((String) -> Void)?
     private let socketPath: String
@@ -114,7 +115,9 @@ final class LocalTunService: VPNConnectionControlling {
             continuation?.resume(throwing: CancellationError())
             onStatus?(.disconnected)
         case .log:
-            if let coreEvent = event.coreEvent {
+            if let metrics = event.metrics {
+                onTelemetry?(CoreTelemetryObservation(session: generation, metrics: metrics))
+            } else if let coreEvent = event.coreEvent {
                 onLog?(coreEvent.message)
                 guard ready == nil, stopTask == nil else { return }
                 if coreEvent == .disconnected { onStatus?(.recoveryRequired) }
@@ -181,7 +184,8 @@ private extension LocalTunConfiguration {
         let salamander = obfs?["salamander"] as? [String: Any]
         let payload = LocalTunConfiguration(host: rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]")), port: port,
             serverName: tls?["sni"] as? String ?? profile.serverName, password: password,
-            obfuscationPassword: salamander?["password"] as? String ?? "", mtu: profile.mtu, dns: profile.dns)
+            obfuscationPassword: salamander?["password"] as? String ?? "", mtu: profile.mtu, dns: profile.dns,
+            directProcesses: core["desktopDirectProcesses"] as? [String])
         try payload.validate()
         return payload
     }

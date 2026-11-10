@@ -19,10 +19,11 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
     public let obfuscationPassword: String
     public let mtu: Int
     public let dns: [String]
+    public let directProcesses: [String]?
 
     public init(host: String, port: Int, serverName: String = "", password: String,
                 obfuscationPassword: String = "", mtu: Int = 1400,
-                dns: [String] = ["1.1.1.1", "2606:4700:4700::1111"]) {
+                dns: [String] = ["1.1.1.1", "2606:4700:4700::1111"], directProcesses: [String]? = nil) {
         self.host = host
         self.port = port
         self.serverName = serverName
@@ -30,9 +31,16 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
         self.obfuscationPassword = obfuscationPassword
         self.mtu = mtu
         self.dns = dns
+        self.directProcesses = directProcesses
     }
 
     public func validate() throws {
+        if let patterns = directProcesses {
+            guard patterns.count <= 64, patterns.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 && !$0.contains(",") && !$0.contains("\\") && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }) else {
+                throw LocalTunProtocolError.invalidConfiguration
+            }
+        }
+
         guard !host.isEmpty, host.utf8.count <= 253,
               host == host.trimmingCharacters(in: .whitespacesAndNewlines),
               !host.contains(where: { $0.isWhitespace || "/@[]?#\\".contains($0) }),
@@ -76,18 +84,52 @@ public enum LocalTunEventKind: String, Codable, Sendable {
     case ready, stopped, error, log
 }
 
+/// Carries bounded QUIC byte counters and path RTT for one core connection.
+public struct CoreTelemetry: Codable, Equatable, Sendable {
+    public let connection: UInt64
+    public let upload: UInt64
+    public let download: UInt64
+    public let rttMicros: UInt64
+    public let elapsedMicros: UInt64?
+
+    public init(connection: UInt64, upload: UInt64, download: UInt64, rttMicros: UInt64, elapsedMicros: UInt64? = nil) {
+        self.connection = connection; self.upload = upload; self.download = download; self.rttMicros = rttMicros; self.elapsedMicros = elapsedMicros
+    }
+
+    public static func parse(_ line: String) -> Self? {
+        guard line.utf8.count <= 256 else { return nil }
+        let fields = line.split(separator: " ", omittingEmptySubsequences: false)
+        guard (fields.count == 5 || fields.count == 6), fields[0] == "HY2UI_METRICS" else { return nil }
+        let numbers = fields.dropFirst().compactMap { field -> UInt64? in
+            guard !field.isEmpty, field.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return nil }
+            return UInt64(field)
+        }
+        guard numbers.count == fields.count - 1, numbers[0] > 0, numbers[3] <= 600_000_000 else { return nil }
+        return Self(connection: numbers[0], upload: numbers[1], download: numbers[2], rttMicros: numbers[3], elapsedMicros: numbers.count == 5 ? numbers[4] : nil)
+    }
+}
+
+/// Associates a metric sample with a worker generation to reject cross-session counter reuse.
+public struct CoreTelemetryObservation: Sendable {
+    public let session: UUID
+    public let metrics: CoreTelemetry
+    public init(session: UUID, metrics: CoreTelemetry) { self.session = session; self.metrics = metrics }
+}
+
 /// Reports a helper lifecycle result without including credentials or raw worker output.
 public struct LocalTunEvent: Codable, Sendable {
     public let kind: LocalTunEventKind
     public let message: String?
     public let failure: LocalTunFailure?
     public let coreEvent: LocalTunCoreEvent?
+    public let metrics: CoreTelemetry?
 
-    public init(kind: LocalTunEventKind, message: String? = nil, failure: LocalTunFailure? = nil, coreEvent: LocalTunCoreEvent? = nil) {
+    public init(kind: LocalTunEventKind, message: String? = nil, failure: LocalTunFailure? = nil, coreEvent: LocalTunCoreEvent? = nil, metrics: CoreTelemetry? = nil) {
         self.kind = kind
         self.message = message
         self.failure = failure
         self.coreEvent = coreEvent
+        self.metrics = metrics
     }
 }
 
@@ -179,13 +221,21 @@ public struct LocalTunDiagnosticRecord: Codable, Sendable {
 
 /// Names allowlisted core observations without carrying upstream error text or destination addresses.
 public enum LocalTunCoreEvent: String, Codable, Sendable {
-    case connected, disconnected, tcpConnectFailed, tcpSyntheticTargetFailed, tcpTransferFailed, udpSessionFailed, udpSendFailed, udpReceiveFailed
+    case tcpConnectTimedOut, tcpReset, tcpBrokenPipe, tcpTransferTimedOut, tcpUnexpectedEOF, tcpCapacity
+    case connected, disconnected, directFlow, tcpConnectFailed, tcpSyntheticTargetFailed, tcpTransferFailed, udpSessionFailed, udpSendFailed, udpReceiveFailed
     public var message: String {
         switch self {
+        case .directFlow: "应用直连规则已命中。"
         case .connected: "核心连接已建立，已有连接可能需要重试。"
         case .disconnected: "核心连接已中断，将在新请求到来时尝试连接。"
         case .tcpConnectFailed: "核心报告 TCP 目标建连失败。"
         case .tcpSyntheticTargetFailed: "TCP 目标位于 198.18.0.0/15，可能残留其他代理的 DNS 缓存。"
+        case .tcpConnectTimedOut: "TCP 目标建连超时。"
+        case .tcpReset: "TCP 连接被重置。"
+        case .tcpBrokenPipe: "TCP 对端已关闭写入通道。"
+        case .tcpTransferTimedOut: "TCP 数据传输超时。"
+        case .tcpUnexpectedEOF: "TCP 连接提前结束。"
+        case .tcpCapacity: "TCP 并发连接已达上限，已拒绝新连接。"
         case .tcpTransferFailed: "核心报告 TCP 数据传输失败。"
         case .udpSessionFailed: "核心报告 UDP 会话建立失败。"
         case .udpSendFailed: "核心报告 UDP 数据发送失败。"

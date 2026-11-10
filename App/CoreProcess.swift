@@ -29,6 +29,7 @@ final class CoreProcess {
     private var session: CoreWorkerSession?
     private var stopTask: Task<Void, Never>?
     private let binaryURL: URL
+    var onTelemetry: ((CoreTelemetryObservation) -> Void)?
     var onExit: (() -> Void)?
     var onLog: ((String) -> Void)?
     var isRunning: Bool { session?.process.isRunning == true }
@@ -77,6 +78,7 @@ final class CoreProcess {
     }
 
     private func configure(_ current: CoreWorkerSession, binary: URL, credentials: Credentials) {
+        current.process.environment = ProcessInfo.processInfo.environment.merging(["HY2UI_TELEMETRY": "1"]) { _, value in value }
         current.process.executableURL = binary
         current.process.arguments = ["--config-stdin"]
         current.process.standardInput = current.input
@@ -114,11 +116,16 @@ final class CoreProcess {
     }
 
     private func consume(_ text: String, credentials: Credentials, token: UUID) {
-        guard let current = session, current.id == token, current.phase != .stopping else { return }
+        guard let current = session, current.id == token else { return }
         current.tail += text
         while let newline = current.tail.firstIndex(of: "\n") {
             var line = String(current.tail[..<newline])
             current.tail.removeSubrange(...newline)
+            if let sample = CoreTelemetry.parse(line) {
+                onTelemetry?(CoreTelemetryObservation(session: current.id, metrics: sample))
+                continue
+            }
+            if current.phase == .stopping { continue }
             if line.hasPrefix("connected to ") { current.readiness.insert("connection") }
             if line.hasPrefix("SOCKS5 proxy listening on ") { current.readiness.insert("socks") }
             if line.hasPrefix("HTTP proxy listening on ") { current.readiness.insert("http") }

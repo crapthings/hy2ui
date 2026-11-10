@@ -16,6 +16,8 @@ pub struct LocalTunConfiguration {
     pub obfuscation_password: String,
     pub mtu: u16,
     pub dns: Vec<String>,
+    #[serde(default)]
+    pub direct_processes: Vec<String>,
 }
 
 /// Reads one bounded JSON message and rejects unsupported fields without echoing secrets.
@@ -37,6 +39,10 @@ pub fn read_configuration(reader: impl Read) -> Result<LocalTunConfiguration, St
 /// Enforces the endpoint and network boundaries before any privileged operation is attempted.
 impl LocalTunConfiguration {
     pub fn validate(&self) -> Result<(), String> {
+        if self.direct_processes.len() > 64 || self.direct_processes.iter().any(|p| p.is_empty() || p.len() > 1024 || p.chars().any(char::is_control)) {
+            return Err("invalid application routing patterns".into());
+        }
+
         if !valid_host(&self.host)
             || (!self.server_name.is_empty() && !valid_host(&self.server_name))
         {

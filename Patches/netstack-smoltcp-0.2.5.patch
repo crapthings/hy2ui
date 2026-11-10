@@ -1,0 +1,320 @@
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -1,5 +1,5 @@
+ use std::{
+-    collections::HashMap,
++    collections::{HashMap, HashSet},
+     net::SocketAddr,
+     pin::Pin,
+     sync::{
+@@ -22,7 +22,7 @@
+ use tokio::{
+     io::{AsyncRead, AsyncWrite, ReadBuf},
+     sync::{
+-        mpsc::{unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender},
++        mpsc::{channel, Receiver, Sender},
+         Notify,
+     },
+ };
+@@ -33,6 +33,23 @@
+     packet::{AnyIpPktFrame, IpPacket},
+     Runner,
+ };
++
++// Caps queued streams, socket creation and retained protocol state independently from packet byte windows.
++const MAX_TCP_SOCKETS: usize = 1024;
++// Identifies both endpoints of a TCP connection, including their address families.
++type FlowKey = (SocketAddr, SocketAddr);
++// Tracks a tuple until its protocol socket is actually retired, including TIME-WAIT.
++struct FlowLease { key: FlowKey, active: Arc<SpinMutex<HashSet<FlowKey>>> }
++// Reserves one tuple exactly once while enforcing the protocol socket limit.
++impl FlowLease {
++    fn acquire(key: FlowKey, active: &Arc<SpinMutex<HashSet<FlowKey>>>) -> Option<Self> {
++        let mut flows = active.lock();
++        if flows.len() >= MAX_TCP_SOCKETS || !flows.insert(key) { return None; }
++        Some(Self { key, active: Arc::clone(active) })
++    }
++}
++// Releases tuple ownership when the runner removes its protocol socket or the runner is dropped.
++impl Drop for FlowLease { fn drop(&mut self) { self.active.lock().remove(&self.key); } }
+ 
+ #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+ enum TcpSocketState {
+@@ -43,6 +60,7 @@
+ }
+ 
+ struct TcpSocketControl {
++    aborted: bool,
+     send_buffer: RingBuffer<'static, u8>,
+     send_waker: Option<Waker>,
+     recv_buffer: RingBuffer<'static, u8>,
+@@ -52,6 +70,7 @@
+ }
+ 
+ struct TcpSocketCreation {
++    lease: FlowLease,
+     control: SharedControl,
+     socket: TcpSocket<'static>,
+ }
+@@ -66,17 +85,17 @@
+     fn create(
+         device: VirtualDevice,
+         iface: Interface,
+-        iface_ingress_tx: UnboundedSender<Vec<u8>>,
++        iface_ingress_tx: Sender<Vec<u8>>,
+         iface_ingress_tx_avail: Arc<AtomicBool>,
+         tcp_rx: Receiver<AnyIpPktFrame>,
+-        stream_tx: UnboundedSender<TcpStream>,
+-        sockets: HashMap<SocketHandle, SharedControl>,
++        stream_tx: Sender<TcpStream>,
++        sockets: HashMap<SocketHandle, (SharedControl, FlowLease)>,
+         tcp_recv_buffer_size: u32,
+         tcp_send_buffer_size: u32,
+     ) -> Runner {
+         Runner::new(async move {
+             let notify = Arc::new(Notify::new());
+-            let (socket_tx, socket_rx) = unbounded_channel::<TcpSocketCreation>();
++            let (socket_tx, socket_rx) = channel::<TcpSocketCreation>(MAX_TCP_SOCKETS);
+             let res = tokio::select! {
+                 v = Self::handle_packet(notify.clone(), iface_ingress_tx, iface_ingress_tx_avail.clone(), tcp_rx, stream_tx, socket_tx, tcp_recv_buffer_size, tcp_send_buffer_size) => v,
+                 v = Self::handle_socket(notify, device, iface, iface_ingress_tx_avail, sockets, socket_rx) => v,
+@@ -90,14 +109,15 @@
+     #[allow(clippy::too_many_arguments)]
+     async fn handle_packet(
+         notify: SharedNotify,
+-        iface_ingress_tx: UnboundedSender<Vec<u8>>,
++        iface_ingress_tx: Sender<Vec<u8>>,
+         iface_ingress_tx_avail: Arc<AtomicBool>,
+         mut tcp_rx: Receiver<AnyIpPktFrame>,
+-        stream_tx: UnboundedSender<TcpStream>,
+-        socket_tx: UnboundedSender<TcpSocketCreation>,
++        stream_tx: Sender<TcpStream>,
++        socket_tx: Sender<TcpSocketCreation>,
+         tcp_recv_buffer_size: u32,
+         tcp_send_buffer_size: u32,
+     ) -> std::io::Result<()> {
++        let active = Arc::new(SpinMutex::new(HashSet::new()));
+         while let Some(frame) = tcp_rx.recv().await {
+             let packet = match IpPacket::new_checked(frame.as_slice()) {
+                 Ok(p) => p,
+@@ -111,6 +131,7 @@
+             if matches!(packet.protocol(), IpProtocol::Icmp | IpProtocol::Icmpv6) {
+                 iface_ingress_tx
+                     .send(frame)
++                    .await
+                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+                 iface_ingress_tx_avail.store(true, Ordering::Release);
+                 notify.notify_one();
+@@ -135,7 +156,10 @@
+             let dst_addr = SocketAddr::new(dst_ip, dst_port);
+ 
+             // TCP first handshake packet, create a new Connection
+-            if packet.syn() && !packet.ack() {
++            let lease = if packet.syn() && !packet.ack() {
++                FlowLease::acquire((src_addr, dst_addr), &active)
++            } else { None };
++            if let Some(lease) = lease {
+                 let mut socket = TcpSocket::new(
+                     TcpSocketBuffer::new(vec![0u8; tcp_recv_buffer_size as usize]),
+                     TcpSocketBuffer::new(vec![0u8; tcp_send_buffer_size as usize]),
+@@ -154,6 +178,7 @@
+                 trace!("created TCP connection for {} <-> {}", src_addr, dst_addr);
+ 
+                 let control = Arc::new(SpinMutex::new(TcpSocketControl {
++                    aborted: false,
+                     send_buffer: RingBuffer::new(vec![0u8; tcp_send_buffer_size as usize]),
+                     send_waker: None,
+                     recv_buffer: RingBuffer::new(vec![0u8; tcp_recv_buffer_size as usize]),
+@@ -169,15 +194,18 @@
+                         notify: notify.clone(),
+                         control: control.clone(),
+                     })
++                    .await
+                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+                 socket_tx
+-                    .send(TcpSocketCreation { control, socket })
++                    .send(TcpSocketCreation { lease, control, socket })
++                    .await
+                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+             }
+ 
+             // Pipeline tcp stream packet
+             iface_ingress_tx
+                 .send(frame)
++                    .await
+                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+             iface_ingress_tx_avail.store(true, Ordering::Release);
+             notify.notify_one();
+@@ -190,14 +218,14 @@
+         mut device: VirtualDevice,
+         mut iface: Interface,
+         iface_ingress_tx_avail: Arc<AtomicBool>,
+-        mut sockets: HashMap<SocketHandle, SharedControl>,
+-        mut socket_rx: UnboundedReceiver<TcpSocketCreation>,
++        mut sockets: HashMap<SocketHandle, (SharedControl, FlowLease)>,
++        mut socket_rx: Receiver<TcpSocketCreation>,
+     ) -> std::io::Result<()> {
+         let mut socket_set = SocketSet::new(vec![]);
+         loop {
+-            while let Ok(TcpSocketCreation { control, socket }) = socket_rx.try_recv() {
++            while let Ok(TcpSocketCreation { lease, control, socket }) = socket_rx.try_recv() {
+                 let handle = socket_set.add(socket);
+-                sockets.insert(handle, control);
++                sockets.insert(handle, (control, lease));
+             }
+ 
+             let before_poll = Instant::now();
+@@ -212,10 +240,21 @@
+             // Check all the sockets' status
+             let mut sockets_to_remove = Vec::new();
+ 
+-            for (socket_handle, control) in sockets.iter() {
++            for (socket_handle, (control, _lease)) in sockets.iter() {
+                 let socket_handle = *socket_handle;
+                 let socket = socket_set.get_mut::<TcpSocket>(socket_handle);
+                 let mut control = control.lock();
++
++                if control.aborted {
++                    socket.abort();
++                    control.aborted = false;
++                    control.send_state = TcpSocketState::Closed;
++                    control.recv_state = TcpSocketState::Closed;
++                    if let Some(waker) = control.send_waker.take() { waker.wake(); }
++                    if let Some(waker) = control.recv_waker.take() { waker.wake(); }
++                    // Give the interface one poll to emit the reset before retiring its socket.
++                    continue;
++                }
+ 
+                 // Remove the socket only when it is in the closed state.
+                 if socket.state() == TcpState::Closed {
+@@ -246,6 +285,7 @@
+ 
+                     socket.close();
+                     control.send_state = TcpSocketState::Closing;
++                    if let Some(waker) = control.send_waker.take() { waker.wake(); }
+                 }
+ 
+                 // Check if readable
+@@ -351,7 +391,9 @@
+             // cooperative `yield_now()` keeps the re-poll just as prompt while
+             // letting `handle_packet` make progress. The timed-park path and the
+             // 5 ms idle fallback are unchanged, so there is no missed-wake risk.
+-            if iface_ingress_tx_avail.load(Ordering::Acquire) {
++            if !device.has_egress_capacity() {
++                device.wait_for_egress_capacity().await?;
++            } else if iface_ingress_tx_avail.load(Ordering::Acquire) {
+                 tokio::task::yield_now().await;
+             } else {
+                 let next_duration = iface
+@@ -372,7 +414,7 @@
+ }
+ 
+ pub struct TcpListener {
+-    stream_rx: UnboundedReceiver<TcpStream>,
++    stream_rx: Receiver<TcpStream>,
+ }
+ 
+ impl TcpListener {
+@@ -387,7 +429,7 @@
+             VirtualDevice::new(stack_tx, mtu);
+         let iface = Self::create_interface(&mut device)?;
+ 
+-        let (stream_tx, stream_rx) = unbounded_channel();
++        let (stream_tx, stream_rx) = channel(MAX_TCP_SOCKETS);
+ 
+         let runner = TcpListenerRunner::create(
+             device,
+@@ -459,15 +501,9 @@
+ impl Drop for TcpStream {
+     fn drop(&mut self) {
+         let mut control = self.control.lock();
+-
+-        if matches!(control.recv_state, TcpSocketState::Normal) {
+-            control.recv_state = TcpSocketState::Close;
+-        }
+-
+-        if matches!(control.send_state, TcpSocketState::Normal) {
+-            control.send_state = TcpSocketState::Close;
+-        }
+-
++        let graceful = control.recv_state == TcpSocketState::Closed
++            && matches!(control.send_state, TcpSocketState::Closing | TcpSocketState::Closed);
++        if !graceful { control.aborted = true; }
+         self.notify.notify_one();
+     }
+ }
+@@ -560,7 +596,7 @@
+     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+         let mut control = self.control.lock();
+ 
+-        if matches!(control.send_state, TcpSocketState::Closed) {
++        if matches!(control.send_state, TcpSocketState::Closing | TcpSocketState::Closed) {
+             return Ok(()).into();
+         }
+ 
+--- a/src/device.rs
++++ b/src/device.rs
+@@ -7,13 +7,13 @@
+     phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken},
+     time::Instant,
+ };
+-use tokio::sync::mpsc::{unbounded_channel, Permit, Sender, UnboundedReceiver, UnboundedSender};
++use tokio::sync::mpsc::{channel, Permit, Sender, Receiver};
+ 
+ use crate::packet::AnyIpPktFrame;
+ 
+ pub(super) struct VirtualDevice {
+     in_buf_avail: Arc<AtomicBool>,
+-    in_buf: UnboundedReceiver<Vec<u8>>,
++    in_buf: Receiver<Vec<u8>>,
+     out_buf: Sender<AnyIpPktFrame>,
+     mtu: usize,
+ }
+@@ -22,9 +22,9 @@
+     pub(super) fn new(
+         iface_egress_tx: Sender<AnyIpPktFrame>,
+         mtu: usize,
+-    ) -> (Self, UnboundedSender<Vec<u8>>, Arc<AtomicBool>) {
++    ) -> (Self, Sender<Vec<u8>>, Arc<AtomicBool>) {
+         let iface_ingress_tx_avail = Arc::new(AtomicBool::new(false));
+-        let (iface_ingress_tx, iface_ingress_rx) = unbounded_channel();
++        let (iface_ingress_tx, iface_ingress_rx) = channel(512);
+         (
+             Self {
+                 in_buf_avail: iface_ingress_tx_avail.clone(),
+@@ -36,6 +36,15 @@
+             iface_ingress_tx_avail,
+         )
+     }
++    // Reports whether the shared output queue can accept another whole packet.
++    pub(super) fn has_egress_capacity(&self) -> bool { self.out_buf.capacity() > 0 }
++
++    // Parks on the output queue's own wakeup instead of spinning when backpressured.
++    pub(super) async fn wait_for_egress_capacity(&self) -> std::io::Result<()> {
++        self.out_buf.reserve().await.map(drop)
++            .map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))
++    }
++
+ }
+ 
+ impl Device for VirtualDevice {
+@@ -111,8 +120,8 @@
+     /// Regression test for the receive() ordering bug: reserving out_buf
+     /// capacity before dequeuing in_buf must not lose the in_buf packet, and
+     /// must not clear in_buf_avail while a real packet is still queued.
+-    #[test]
+-    fn receive_keeps_in_buf_packet_when_out_buf_is_full() {
++    #[tokio::test]
++    async fn receive_keeps_in_buf_packet_when_out_buf_is_full() {
+         let (out_tx, mut out_rx) = channel::<AnyIpPktFrame>(1);
+         let (mut device, ingress_tx, in_buf_avail) = VirtualDevice::new(out_tx.clone(), 1500);
+ 
+@@ -120,7 +129,7 @@
+         out_tx.try_send(vec![0u8; 4]).unwrap();
+ 
+         // Queue an in_buf packet and mark it available, as handle_packet would.
+-        ingress_tx.send(b"payload".to_vec()).unwrap();
++        ingress_tx.send(b"payload".to_vec()).await.unwrap();
+         in_buf_avail.store(true, Ordering::Release);
+ 
+         // out_buf is full: receive() must yield nothing this poll...

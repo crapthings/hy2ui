@@ -10,6 +10,7 @@ final class SystemProxy {
         var original: Data
         var installed: Data
     }
+    private let pacServer = PACServer()
     private var authorization: AuthorizationRef?
     private let journal: URL
     init(directory: URL) { journal = directory.appendingPathComponent("proxy-recovery.plist") }
@@ -17,6 +18,28 @@ final class SystemProxy {
     var needsRecovery: Bool { FileManager.default.fileExists(atPath: journal.path) }
 
     func enable(httpPort: Int, socksPort: Int) throws {
+        try install(SystemProxyConfiguration.manual(httpPort: httpPort, socksPort: socksPort))
+    }
+
+    func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws {
+        guard !needsRecovery else { throw ConfigurationError.invalid("请先恢复上次连接的系统代理。") }
+        try configuration.validate()
+        do {
+            let url: String
+            if configuration.mode == .generatedPAC {
+                url = try await pacServer.start(script: PACScript.generate(configuration: configuration, httpPort: httpPort)).absoluteString
+            } else { url = configuration.pacURL }
+            try Task.checkCancellation()
+            var settings = SystemProxyConfiguration.pac(url: url)
+            settings["ProxyAutoConfigJavaScript"] = ""
+            try install(settings)
+        } catch {
+            if !needsRecovery { pacServer.stop() }
+            throw error
+        }
+    }
+
+    private func install(_ requested: [String: Any]) throws {
         guard !needsRecovery else { throw ConfigurationError.invalid("请先恢复上次连接的系统代理。") }
         try transaction { preferences in
             guard let set = SCNetworkSetCopyCurrent(preferences),
@@ -27,19 +50,10 @@ final class SystemProxy {
                 guard let serviceID = SCNetworkServiceGetServiceID(service),
                       let proto = SCNetworkServiceCopyProtocol(service, kSCNetworkProtocolTypeProxies) else { continue }
                 let original = SCNetworkProtocolGetConfiguration(proto) as? [String: Any] ?? [:]
-                let installed: [String: Any] = [
-                    kSCPropNetProxiesHTTPEnable as String: 1,
-                    kSCPropNetProxiesHTTPProxy as String: "127.0.0.1",
-                    kSCPropNetProxiesHTTPPort as String: httpPort,
-                    kSCPropNetProxiesHTTPSEnable as String: 1,
-                    kSCPropNetProxiesHTTPSProxy as String: "127.0.0.1",
-                    kSCPropNetProxiesHTTPSPort as String: httpPort,
-                    kSCPropNetProxiesSOCKSEnable as String: 1,
-                    kSCPropNetProxiesSOCKSProxy as String: "127.0.0.1",
-                    kSCPropNetProxiesSOCKSPort as String: socksPort,
-                    kSCPropNetProxiesProxyAutoConfigEnable as String: 0,
-                    kSCPropNetProxiesProxyAutoDiscoveryEnable as String: 0
-                ]
+                var installed = requested
+                let fallback: [String: Any] = ["HTTPProxy": "", "HTTPPort": 0, "HTTPSProxy": "", "HTTPSPort": 0,
+                    "SOCKSProxy": "", "SOCKSPort": 0, "ProxyAutoConfigURLString": "", "ProxyAutoConfigJavaScript": ""]
+                for (key, value) in fallback where installed[key] == nil { installed[key] = original[key] ?? value }
                 var updated = original
                 updated.merge(installed) { _, new in new }
                 entries.append(Entry(serviceID: serviceID as String,
@@ -57,7 +71,7 @@ final class SystemProxy {
     }
 
     func restore() throws {
-        guard needsRecovery else { return }
+        guard needsRecovery else { pacServer.stop(); return }
         let entries = try PropertyListDecoder().decode([Entry].self, from: Data(contentsOf: journal))
         try transaction { preferences in
             for entry in entries {
@@ -71,6 +85,7 @@ final class SystemProxy {
             }
         }
         try FileManager.default.removeItem(at: journal)
+        pacServer.stop()
     }
 
     private func transaction(_ body: (SCPreferences) throws -> Void) throws {

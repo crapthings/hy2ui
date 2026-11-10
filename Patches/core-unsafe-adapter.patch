@@ -1,0 +1,11 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -26,7 +26,7 @@
+ version = "0.1.0-rc.5"
+ 
+ [workspace.lints.rust]
+-unsafe_code = "forbid"
++unsafe_code = "deny"
+ 
+ [workspace.lints.clippy]
+ all = "warn"

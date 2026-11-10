@@ -83,7 +83,9 @@ final class LocalTunServer {
             for event in worker?.takeDiagnosticEvents() ?? [] { try connection.send(event) }
             guard let request = try connection.readRequest(timeout: nil, termination: termination) else { continue }
             guard request.command == .stop else { throw LocalTunProtocolError.invalidMessage }
+            let completed = worker
             try cleanup()
+            for event in completed?.takeDiagnosticEvents() ?? [] { try connection.send(event) }
             try connection.send(LocalTunEvent(kind: .stopped))
             return
         }

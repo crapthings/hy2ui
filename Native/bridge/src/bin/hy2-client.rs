@@ -1,4 +1,6 @@
 //! Desktop worker: reads credentials from stdin and exits when its owning UI disappears.
+// Links the shared native SDK adapter into this standalone worker.
+extern crate hy2_bridge;
 use hysteria_cli::{config::ClientConfig, runtime::serve_client};
 use std::{
     io::{self, Read},

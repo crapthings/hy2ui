@@ -316,3 +316,97 @@
 "未响应" = "No Response";
 
 "TCP 目标位于 198.18.0.0/15，可能残留其他代理的 DNS 缓存。" = "The TCP target is in 198.18.0.0/15. DNS entries from another proxy may still be cached.";
+
+"QUIC 延迟" = "QUIC Latency";
+
+"通过 Hy2 握手测量连接延迟。" = "Measures connection latency with a Hy2 handshake.";
+
+"无法读取流量记录，原文件已保留。" = "Could not read traffic history. The original file was kept.";
+
+"流量记录保存失败。" = "Could not save traffic history.";
+
+"系统网络活动暂时不可用。" = "System network activity is unavailable.";
+
+"网络活动" = "Network Activity";
+
+"系统进程网络活动，包含直连、代理和本地连接。" = "System process activity, including direct, proxy, and local connections.";
+
+"进程" = "Process";
+
+"下载" = "Download";
+
+"上传" = "Upload";
+
+"已接收" = "Received";
+
+"已发送" = "Sent";
+
+"概览" = "Overview";
+
+"今日流量" = "Today";
+
+"本月流量" = "This Month";
+
+"仅统计 Hy2UI 连接，含协议开销。" = "Hy2UI connections only, including protocol overhead.";
+
+"此后端暂不提供连接统计。" = "Connection metrics are not available for this backend yet.";
+
+"查看进程网络活动" = "View Process Activity";
+
+"全局代理" = "Global proxy";
+"自动 PAC" = "Automatic PAC";
+"系统代理规则" = "System proxy rules";
+"代理方式" = "Proxy mode";
+"PAC 需指向当前本地代理端口。" = "The PAC script must use the current local proxy port.";
+"直连域名" = "Direct domains";
+"用逗号分隔，包含所填域名的子域名。" = "Separate domains with commas. Subdomains are included.";
+"本地域名和内网 IP 直连" = "Bypass local names and private IPs";
+"PAC 用于系统代理，请关闭增强模式后连接。" = "PAC applies to System Proxy. Turn off Enhanced Mode before connecting.";
+"直连应用" = "Direct applications";
+"仅用于本地增强模式，请关闭系统代理。" = "Requires local Enhanced Mode with System Proxy turned off.";
+"进程名称或路径，可使用 * 和 ?" = "Process name or path; * and ? are supported";
+"选择应用" = "Choose app";
+"无法读取分流配置，原记录已保留。" = "Could not read routing settings. The original record was preserved.";
+"无法启动本地 PAC 服务。" = "Could not start the local PAC server.";
+"分流配置版本或规则数量无效。" = "Invalid routing version or too many rules.";
+"PAC URL 请填写有效的 HTTP 或 HTTPS 地址。" = "Enter a valid HTTP or HTTPS PAC URL.";
+"使用 PAC 时请关闭增强模式，避免直连流量再次被接管。" = "Turn off Enhanced Mode when using PAC so direct traffic can bypass the tunnel.";
+"应用直连目前需要仅开启本地增强模式。" = "Application bypass requires local Enhanced Mode with System Proxy turned off.";
+"直连域名请逐项填写域名，不包含协议、路径或通配符。" = "Enter domain names without schemes, paths or wildcards.";
+"应用规则请填写进程名称或绝对路径，可使用 * 和 ?。" = "Enter a process name or absolute path. You can use * and ?.";
+"本地代理端口无效。" = "Invalid local proxy port.";
+"当前系统代理后端不支持 PAC。" = "The current system proxy backend does not support PAC.";
+"应用直连规则已命中。" = "An application bypass rule matched.";
+"无法识别的流量继续走代理，规则在下次连接时生效。" = "Unidentified traffic stays proxied. Changes apply on the next connection.";
+
+"直连 · DIRECT" = "Direct · DIRECT";
+"使用默认规则" = "Use default rules";
+"默认" = "Default";
+"规则" = "Rule";
+"请选择一个进程" = "Select one process";
+"下次连接生效" = "Applies on the next connection";
+"已保存，下次连接生效。" = "Saved. Applies on the next connection.";
+"无法获取此进程的完整路径。" = "The full process path is unavailable.";
+"进程已退出或发生变化，请刷新后重试。" = "The process has exited or changed. Refresh and try again.";
+"此进程受名称或应用规则覆盖，请在设置中修改该规则。" = "A name or app rule covers this process. Edit the shared rule in Settings.";
+
+"暂停更新" = "Pause updates";
+"继续更新" = "Resume updates";
+"搜索进程、PID 或路径" = "Search name, PID or path";
+"重新排序" = "Re-sort";
+"点击列标题或重新排序，更新数据时保持顺序。" = "Click a column heading or Re-sort to order rows. Sampling keeps their positions.";
+"暂无活动" = "No recent activity";
+"已暂停更新" = "Updates paused";
+"暂无网络活动" = "No network activity";
+"没有匹配的进程" = "No matching processes";
+"复制 PID" = "Copy PID";
+"复制路径" = "Copy path";
+"复制进程名" = "Copy process name";
+"请选择进程" = "Select processes";
+
+"TCP 目标建连超时。" = "TCP target connection timed out.";
+"TCP 连接被重置。" = "TCP connection was reset.";
+"TCP 对端已关闭写入通道。" = "The TCP peer closed the write channel.";
+"TCP 数据传输超时。" = "TCP transfer timed out.";
+"TCP 连接提前结束。" = "TCP connection ended early.";
+"TCP 并发连接已达上限，已拒绝新连接。" = "TCP connection limit reached. A new connection was rejected.";

@@ -1,33 +1,30 @@
 import Foundation
-import Darwin
 
-/// Checks TCP latency success and failure using an ephemeral local listener without system network changes.
+/// Verifies that latency comes from core QUIC telemetry and stops the disposable worker on cancellation.
 @main
 private struct ServerLatencySmoke {
+    @MainActor
     static func main() async throws {
-        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
-        precondition(descriptor >= 0)
-        defer { close(descriptor) }
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        let result = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        precondition(result == 0 && listen(descriptor, 4) == 0)
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let named = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(descriptor, $0, &length) }
-        }
-        precondition(named == 0)
-        let port = Int(UInt16(bigEndian: address.sin_port))
-        let latency = await ServerLatencyProbe.measure(host: "127.0.0.1", port: port)
-        precondition(latency != nil && latency! > 0)
-        let invalid = await ServerLatencyProbe.measure(host: "127.0.0.1", port: 65536)
-        precondition(invalid == nil)
-        print("Server latency loopback smoke passed.")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let binary = directory.appendingPathComponent("mock-core")
+        let script = """
+        #!/bin/sh
+        cat >/dev/null
+        printf '%s\\n' 'connected to loopback' 'SOCKS5 proxy listening on loopback' 'HTTP proxy listening on loopback' 'HY2UI_METRICS 1 10 20 34800 1000000' >&2
+        trap 'exit 0' INT TERM
+        while :; do /bin/sleep 0.05; done
+        """
+        try script.write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
+        let data = Data("{\"server\":\"localhost:443\",\"auth\":\"test-only\"}".utf8)
+        let measured = await ServerLatencyProbe.measure(configuration: data, credentials: Credentials(), binaryURL: binary)
+        precondition(measured == 35)
+        let task = Task { await ServerLatencyProbe.measure(configuration: data, credentials: Credentials(), binaryURL: binary) }
+        task.cancel()
+        let cancelled = await task.value
+        precondition(cancelled == nil)
+        print("Server latency QUIC telemetry and cancellation smoke passed.")
     }
 }

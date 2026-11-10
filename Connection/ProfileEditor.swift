@@ -81,6 +81,14 @@ public final class ProfileEditor {
         clearNotice()
     }
 
+    public func credentialsForMeasurement(_ id: UUID) throws -> Credentials {
+        if profile.id == id { return credentials }
+        guard let saved = library.profiles.first(where: { $0.id == id }) else {
+            throw ConfigurationError.invalid("服务器已不存在。")
+        }
+        return try repository.credentials(for: saved)
+    }
+
     public func remove(_ id: UUID) throws {
         if id == profile.id { try removeCurrent(); return }
         guard library.profiles.contains(where: { $0.id == id }) else { return }

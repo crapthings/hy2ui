@@ -1,54 +1,30 @@
 import Foundation
-import Network
 
-/// Measures bounded TCP connection setup time without credentials or system network changes.
+/// Measures authenticated Hy2 QUIC RTT in a disposable worker without changing system networking.
+@MainActor
 enum ServerLatencyProbe {
-    static func measure(host: String, port: Int) async -> Int? {
-        guard !host.isEmpty, (1...65535).contains(port), let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return nil }
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                let attempt = Attempt(connection: connection, continuation: continuation)
-                attempt.start()
+    static func measure(configuration: Data, credentials: Credentials, binaryURL: URL? = nil) async -> Int? {
+        let worker = CoreProcess(binaryURL: binaryURL)
+        var sample: CoreTelemetry?
+        worker.onTelemetry = { sample = $0.metrics }
+        do {
+            var core = try JSONSerialization.jsonObject(with: configuration) as? [String: Any] ?? [:]
+            core = core.filter { ["server", "auth", "tls", "obfs", "quic", "congestion", "bandwidth"].contains($0.key) }
+            core["lazy"] = false
+            core["socks5"] = ["listen": "127.0.0.1:0"]
+            core["http"] = ["listen": "127.0.0.1:0"]
+            let data = try JSONSerialization.data(withJSONObject: core)
+            try await worker.start(configuration: data, credentials: credentials)
+            let deadline = ContinuousClock.now + .seconds(2)
+            while sample == nil && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(25))
             }
-        } onCancel: { connection.cancel() }
-    }
-
-    /// Serializes timeout and connection callbacks so each measurement completes exactly once.
-    private final class Attempt: @unchecked Sendable {
-        private let queue = DispatchQueue(label: "dev.hy2ui.latency")
-        private let connection: NWConnection
-        private var continuation: CheckedContinuation<Int?, Never>?
-        private let startTime = DispatchTime.now().uptimeNanoseconds
-        private var timeout: DispatchWorkItem?
-
-        init(connection: NWConnection, continuation: CheckedContinuation<Int?, Never>) {
-            self.connection = connection
-            self.continuation = continuation
-        }
-
-        func start() {
-            connection.stateUpdateHandler = { [self] state in
-                switch state {
-                case .ready: finish(max(1, Int((DispatchTime.now().uptimeNanoseconds - startTime) / 1_000_000)))
-                case .failed, .cancelled: finish(nil)
-                default: break
-                }
-            }
-            let timeout = DispatchWorkItem { [self] in finish(nil) }
-            self.timeout = timeout
-            queue.asyncAfter(deadline: .now() + 3, execute: timeout)
-            connection.start(queue: queue)
-        }
-
-        private func finish(_ value: Int?) {
-            guard let continuation else { return }
-            self.continuation = nil
-            timeout?.cancel()
-            timeout = nil
-            connection.stateUpdateHandler = nil
-            connection.cancel()
-            continuation.resume(returning: value)
+            let result = sample.map { max(1, Int(($0.rttMicros + 999) / 1000)) }
+            await worker.stop()
+            return result
+        } catch {
+            await worker.stop()
+            return nil
         }
     }
 }

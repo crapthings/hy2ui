@@ -25,6 +25,8 @@ final class AppModel {
     private var draftCredentials = Credentials()
     private var initializationError: String?
     let helperInstaller = HelperInstallationManager()
+    let dashboard = DashboardModel()
+    let routing: RoutingPreferences
     let enhancedSetup: EnhancedModeOnboarding
     private(set) var isManagingHelper = false
     private(set) var logs: [String] = []
@@ -78,6 +80,7 @@ final class AppModel {
          preferences: UserDefaults = .standard) {
         self.makeSession = makeSession
         serverList = ServerListPreferences(defaults: preferences)
+        routing = RoutingPreferences(defaults: preferences)
         enhancedSetup = EnhancedModeOnboarding(preferences: preferences)
     }
 
@@ -89,6 +92,10 @@ final class AppModel {
             // Publish recovery services before loading data that may fail to decode or unlock.
             session = application
             application.connection.onLog = { [weak self] in self?.log($0) }
+            application.connection.onTelemetry = { [weak self] source, observation in
+                self?.dashboard.receive(observation, source: source)
+            }
+            dashboard.start()
             await application.initialize()
             if let notice = application.editor.notice { log(notice) }
             await helperInstaller.refresh()
@@ -160,14 +167,32 @@ final class AppModel {
         catch { session.editor.report(error); log(error.localizedDescription); return false }
     }
 
+    func measureServer(_ server: Profile) async -> Int? {
+        guard initialized, let session else { return nil }
+        do {
+            let secrets = try session.editor.credentialsForMeasurement(server.id)
+            // Probe connection settings independently from capture choices and local listener ports.
+            var probe = server
+            probe.systemProxyEnabled = true; probe.enhancedModeEnabled = false
+            probe.httpPort = 18080; probe.socksPort = 11080
+            let configuration = try probe.coreConfiguration(credentials: secrets)
+            try Task.checkCancellation()
+            return await ServerLatencyProbe.measure(configuration: configuration, credentials: secrets)
+        } catch { return nil }
+    }
+
     func connect() async {
         guard canConnect, let session else { return }
         do {
-            let configuration = try profile.coreConfiguration(credentials: credentials)
+            try routing.configuration.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend)
+            let base = try profile.coreConfiguration(credentials: credentials)
+            var core = try JSONSerialization.jsonObject(with: base) as? [String: Any] ?? [:]
+            if !routing.configuration.directProcesses.isEmpty { core["desktopDirectProcesses"] = routing.configuration.directProcesses }
+            let configuration = try JSONSerialization.data(withJSONObject: core)
             try session.editor.save()
             session.editor.clearNotice()
             let connectedID = profile.id
-            await session.connection.connect(profile: profile, configuration: configuration, credentials: credentials)
+            await session.connection.connect(profile: profile, configuration: configuration, credentials: credentials, routing: routing.configuration)
             if session.connection.state == .connected { serverList.recordUse(connectedID) }
         } catch {
             session.editor.report(error)
@@ -179,6 +204,7 @@ final class AppModel {
         guard let session else { return }
         session.editor.clearNotice()
         await session.connection.disconnect()
+        dashboard.clearLive()
     }
 
     func recoverProxy() async {

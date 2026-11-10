@@ -6,7 +6,8 @@ public enum ProxyOwnership {
     private static let endpointGroups = [
         ["HTTPEnable", "HTTPProxy", "HTTPPort"],
         ["HTTPSEnable", "HTTPSProxy", "HTTPSPort"],
-        ["SOCKSEnable", "SOCKSProxy", "SOCKSPort"]
+        ["SOCKSEnable", "SOCKSProxy", "SOCKSPort"],
+        ["ProxyAutoConfigEnable", "ProxyAutoConfigURLString", "ProxyAutoConfigJavaScript"]
     ]
 
     /// Restores owned endpoint groups and independent settings without combining them with external edits.
