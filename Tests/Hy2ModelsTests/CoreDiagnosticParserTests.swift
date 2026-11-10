@@ -52,3 +52,20 @@ import Testing
     #expect(events.count == 32 && events.last == .disconnected)
     #expect(!parser.ready)
 }
+
+/// Identifies benchmark-range destinations without leaking endpoints or matching error-text addresses.
+@Test func syntheticTCPTargetDiagnosticsStayPrivate() throws {
+    for host in ["198.18.0.2", "198.19.255.254"] {
+        var parser = CoreDiagnosticParser()
+        parser.consume(Data("TUN TCP 192.0.2.1:12345 -> \(host):443 connect failed: private-reason\n".utf8))
+        let events = parser.drain()
+        #expect(events == [.tcpSyntheticTargetFailed])
+        let output = String(decoding: try JSONEncoder().encode(events), as: UTF8.self)
+        #expect(!output.contains(host) && !output.contains("private-reason"))
+    }
+    for target in ["198.17.0.1:443", "198.20.0.1:443", "[2001:db8::1]:443", "198.18.0.999:443", "198.18.0.1:invalid"] {
+        var parser = CoreDiagnosticParser()
+        parser.consume(Data("TUN TCP source -> \(target) connect failed: 198.18.0.2 private-reason\n".utf8))
+        #expect(parser.drain() == [.tcpConnectFailed])
+    }
+}

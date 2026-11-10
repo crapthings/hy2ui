@@ -149,10 +149,27 @@ Unknown errors are not forwarded as raw text. Diagnostics do not pass through cr
 
 These signals are not an end-to-end health check. A running core that reports no state change may still have a failed connection or flow. Update the installed service from Settings after upgrading the app; old root-owned copies are not replaced automatically. PacketTunnel reuses the rc5 TCP/UDP forwarding and error-limiting code rather than replacing upstream session, IPv6, or reconnect logic.
 
+### Collect a network report
+
+When a connection fails, run this before switching to another client:
+
+```sh
+python3 Scripts/diagnose-network.py
+```
+
+The script records DNS, routes, system proxy settings, relevant processes, and unauthenticated transport checks in a private JSON file under `.build/network-diagnostics/`. It does not change network settings. Reports include network addresses and local paths; review them before sharing. Proxy credentials and unrelated process environment values are excluded.
+
+Checks include UDP and TCP DNS queries, IPv4 HTTPS, and IPv6 HTTPS with an explicit destination address. The IPv6 check avoids a false pass when the system resolver returns only IPv4 addresses. A bare TCP handshake is reported separately: the local TUN stack may accept it before the remote connection succeeds. Use the HTTPS result to confirm that TLS reaches the target. An HTTP 401 or 405 means the endpoint responded, not that an authenticated session or WebSocket connection works.
+
+If IPv4 works but IPv6 HTTPS closes immediately, check the server's IPv6 outbound path and resolver implementation. This can affect browsers that choose IPv6 even when a command-line request succeeds over IPv4. With a custom resolver, IPv6 literals must be recognized as IP addresses rather than queried as domain names.
+
+The app also classifies failed TCP targets in `198.18.0.0/15` as a possible cached-address conflict with another proxy. It reports only the range and category, not the exact destination or raw error. This is a diagnostic hint, not proof of a DNS-cache problem.
+
 ## Tests
 
 ```sh
 swift test
+python3 -m unittest discover -s Tests/NetworkDiagnostics
 Scripts/test-helper-installer.sh
 Scripts/test-server-library.sh
 Scripts/test-server-latency.sh

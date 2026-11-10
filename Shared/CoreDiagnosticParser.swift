@@ -29,6 +29,18 @@ public struct CoreDiagnosticParser: Sendable {
         return result
     }
 
+    private static func hasSyntheticTarget(_ text: String) -> Bool {
+        guard let arrow = text.range(of: " -> "),
+              let failure = text.range(of: " connect failed: ", range: arrow.upperBound..<text.endIndex) else { return false }
+        let endpoint = text[arrow.upperBound..<failure.lowerBound]
+        let parts = endpoint.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, let port = UInt16(parts[1]), port > 0 else { return false }
+        let octets = parts[0].split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return false }
+        let address = octets.compactMap { UInt8($0) }
+        return address.count == 4 && address[0] == 198 && (address[1] == 18 || address[1] == 19)
+    }
+
     private mutating func observe(_ text: String) {
         let event: LocalTunCoreEvent?
         if text.hasPrefix("connected to ") {
@@ -41,7 +53,7 @@ public struct CoreDiagnosticParser: Sendable {
             connectionSeen = false
             event = .disconnected
         } else if text.hasPrefix("TUN TCP "), text.contains(" connect failed: ") {
-            event = .tcpConnectFailed
+            event = Self.hasSyntheticTarget(text) ? .tcpSyntheticTargetFailed : .tcpConnectFailed
         } else if text.hasPrefix("TUN TCP "), text.contains(" transfer failed: ") {
             event = .tcpTransferFailed
         } else if text.hasPrefix("TUN UDP "), text.contains(" session failed: ") {

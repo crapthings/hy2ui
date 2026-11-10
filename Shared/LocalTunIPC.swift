@@ -179,12 +179,13 @@ public struct LocalTunDiagnosticRecord: Codable, Sendable {
 
 /// Names allowlisted core observations without carrying upstream error text or destination addresses.
 public enum LocalTunCoreEvent: String, Codable, Sendable {
-    case connected, disconnected, tcpConnectFailed, tcpTransferFailed, udpSessionFailed, udpSendFailed, udpReceiveFailed
+    case connected, disconnected, tcpConnectFailed, tcpSyntheticTargetFailed, tcpTransferFailed, udpSessionFailed, udpSendFailed, udpReceiveFailed
     public var message: String {
         switch self {
         case .connected: "核心连接已建立，已有连接可能需要重试。"
         case .disconnected: "核心连接已中断，将在新请求到来时尝试连接。"
         case .tcpConnectFailed: "核心报告 TCP 目标建连失败。"
+        case .tcpSyntheticTargetFailed: "TCP 目标位于 198.18.0.0/15，可能残留其他代理的 DNS 缓存。"
         case .tcpTransferFailed: "核心报告 TCP 数据传输失败。"
         case .udpSessionFailed: "核心报告 UDP 会话建立失败。"
         case .udpSendFailed: "核心报告 UDP 数据发送失败。"
