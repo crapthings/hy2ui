@@ -185,7 +185,8 @@ private extension LocalTunConfiguration {
         let payload = LocalTunConfiguration(host: rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]")), port: port,
             serverName: tls?["sni"] as? String ?? profile.serverName, password: password,
             obfuscationPassword: salamander?["password"] as? String ?? "", mtu: profile.mtu, dns: profile.dns,
-            directProcesses: core["desktopDirectProcesses"] as? [String])
+            directProcesses: core["desktopDirectProcesses"] as? [String],
+            bypassLocalNetworks: core["desktopBypassLocalNetworks"] as? Bool, addressRules: core["desktopAddressRules"] as? [String])
         try payload.validate()
         return payload
     }

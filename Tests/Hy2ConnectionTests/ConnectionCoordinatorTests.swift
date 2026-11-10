@@ -65,6 +65,7 @@ private final class FakeProxy: SystemProxyControlling, PACProxyControlling {
     var pacGate: TestGate?
     var pacEnables = 0
     var pacConfiguration: RoutingConfiguration?
+    var manualConfiguration: RoutingConfiguration?
 
     func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws {
         pacEnables += 1; pacConfiguration = configuration
@@ -82,6 +83,10 @@ private final class FakeProxy: SystemProxyControlling, PACProxyControlling {
         enables += 1
         onEnable?()
         needsRecovery = true
+    }
+    func enable(httpPort: Int, socksPort: Int, routing: RoutingConfiguration) async throws {
+        manualConfiguration = routing
+        try enable(httpPort: httpPort, socksPort: socksPort)
     }
     func restore() throws {
         restores += 1
@@ -510,4 +515,15 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     await attempt.value; await disconnect.value
     #expect(coordinator.state == .idle)
     #expect(!proxy.needsRecovery && worker.stops == 1 && proxy.restores > 0)
+}
+
+/// Forwards disabled local bypass to the manual proxy path without acquiring system preferences.
+@Test @MainActor func manualProxyUsesFrozenBypassPreference() async {
+    let proxy = FakeProxy()
+    let coordinator = ConnectionCoordinator(worker: FakeWorker(), proxy: proxy, vpn: FakeVPN())
+    var routing = RoutingConfiguration(); routing.bypassLocalNetworks = false
+    await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials(), routing: routing)
+    #expect(coordinator.state == .connected)
+    #expect(proxy.manualConfiguration?.bypassLocalNetworks == false)
+    await coordinator.disconnect()
 }

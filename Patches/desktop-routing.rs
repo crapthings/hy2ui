@@ -14,16 +14,32 @@ mod flow_index;
 #[path = "desktop_process_owners.rs"]
 mod process_owners;
 
+/// Marks a missing local address-family exit independently from a remote target failure.
+#[derive(Debug)]
+pub struct DirectEgressUnavailable { pub ipv6: bool }
+/// Gives the error a fixed message without exposing network configuration.
+impl std::fmt::Display for DirectEgressUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(if self.ipv6 { "local IPv6 direct egress unavailable" } else { "local IPv4 direct egress unavailable" })
+    }
+}
+/// Allows diagnostics to downcast a missing-exit error without parsing arbitrary strings.
+impl std::error::Error for DirectEgressUnavailable {}
+
+/// Exposes captured physical indices when application or IP routing rules need bound egress.
+pub fn direct_interfaces() -> Option<(u32, u32)> { RULES.get().map(|rules| (rules.ipv4, rules.ipv6)) }
+
 /// Holds immutable per-worker process patterns and physical interface indices.
-struct Rules { matcher: rule_index::RuleIndex, owners: flow_index::FlowIndex<process_owners::Owner>, ipv4: u32, ipv6: u32 }
+struct Rules { matcher: rule_index::RuleIndex, owners: flow_index::FlowIndex<process_owners::Owner>, ipv4: u32, ipv6: u32, addresses: crate::desktop_address_policy::AddressIndex, has_processes: bool }
 /// Enables application routing only for a worker explicitly configured by the local helper.
 static RULES: OnceLock<Arc<Rules>> = OnceLock::new();
 /// Limits expensive kernel metadata scans without blocking Tokio's network threads.
 static LOOKUPS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(4)));
 
-/// Validates process patterns and captures interfaces before any TUN routes are installed.
-pub fn configure(patterns: Vec<String>) -> Result<(), String> {
-    if patterns.is_empty() { return Ok(()); }
+/// Compiles application and IP rules and captures physical interfaces before TUN routes are installed.
+pub fn configure(patterns: Vec<String>, addresses: Vec<String>) -> Result<(), String> {
+    if patterns.is_empty() && addresses.is_empty() { return Ok(()); }
+    let addresses = crate::desktop_address_policy::AddressIndex::new(&addresses)?;
     if patterns.len() > 64 || patterns.iter().any(|p| p.is_empty() || p.len() > 1024 || p.chars().any(char::is_control)
         || p.contains([',', '\\']) || p.trim() != p || (p.contains('/') && !p.starts_with('/'))) {
         return Err("invalid application routing patterns".into());
@@ -32,9 +48,9 @@ pub fn configure(patterns: Vec<String>) -> Result<(), String> {
     {
         // SAFETY: the shim reads system interface metadata and takes no pointers.
         let (ipv4, ipv6, available) = unsafe { (hy2_direct_interface(0), hy2_direct_interface(1), hy2_process_lookup_available()) };
-        if available != 1 { return Err("process routing metadata is unavailable on this system".into()); }
+        if !patterns.is_empty() && available != 1 { return Err("process routing metadata is unavailable on this system".into()); }
         if ipv4 == 0 && ipv6 == 0 { return Err("no physical interface is available for direct routing".into()); }
-        RULES.set(Arc::new(Rules { matcher: rule_index::RuleIndex::new(&patterns), owners: flow_index::FlowIndex::new(), ipv4, ipv6 })).map_err(|_| "application routing was already configured".to_string())
+        RULES.set(Arc::new(Rules { has_processes: !patterns.is_empty(), addresses, matcher: rule_index::RuleIndex::new(&patterns), owners: flow_index::FlowIndex::new(), ipv4, ipv6 })).map_err(|_| "application routing was already configured".to_string())
     }
     #[cfg(not(target_os = "macos"))]
     { Err("application routing is supported only on macOS".into()) }
@@ -72,6 +88,8 @@ pub(crate) async fn direct_udp(source: SocketAddr, destination: SocketAddr) -> O
 /// Looks up flow ownership on a bounded blocking pool and leaves ambiguous or unavailable flows proxied.
 async fn selected(source: SocketAddr, destination: SocketAddr, udp: bool) -> Option<Arc<Rules>> {
     let rules = Arc::clone(RULES.get()?);
+    if let Some(direct) = rules.addresses.decision(destination.ip()) { return direct.then_some(rules); }
+    if !rules.has_processes { return None; }
     let permit = tokio::time::timeout(Duration::from_millis(150), Arc::clone(&LOOKUPS).acquire_owned()).await.ok()?.ok()?;
     let test = Arc::clone(&rules);
     let matched = tokio::task::spawn_blocking(move || { let _permit = permit; native_match(&test, source, destination, udp) }).await.ok()?;
@@ -89,6 +107,7 @@ fn scoped(mut address: SocketAddr, index: u32) -> SocketAddr {
 /// Binds only the new outbound socket and refuses direct routing if its interface is unavailable.
 #[cfg(unix)]
 fn bind(socket: &impl std::os::fd::AsRawFd, ipv6: bool, index: u32) -> io::Result<()> {
+    if index == 0 { return Err(io::Error::new(io::ErrorKind::NetworkUnreachable, DirectEgressUnavailable { ipv6 })); }
     #[cfg(target_os = "macos")]
     {
         // SAFETY: descriptor and interface index refer to this owned socket and captured system metadata.

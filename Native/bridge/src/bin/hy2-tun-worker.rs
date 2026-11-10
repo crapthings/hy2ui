@@ -34,14 +34,18 @@ fn main() {
 
 /// Refuses unprivileged execution and serves the TUN until a signal or supervisor exit requests cleanup.
 async fn run() -> Result<(), String> {
-    if std::env::args().skip(1).collect::<Vec<_>>() != ["--config-stdin"] {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if arguments != ["--config-stdin"] && arguments != ["--recover-direct-routes"] {
         return Err("--config-stdin is required".into());
     }
     // SAFETY: geteuid and getppid have no preconditions or pointer arguments.
     let (user, parent) = unsafe { (libc::geteuid(), libc::getppid()) };
     validate_supervisor(user, parent)?;
+    #[cfg(target_os = "macos")]
+    hysteria_cli::desktop_direct_routes::recover().map_err(|_| "scoped direct route recovery failed".to_string())?;
+    if arguments == ["--recover-direct-routes"] { return Ok(()); }
     let input = configuration::read_configuration(io::stdin().lock())?;
-    hysteria_cli::desktop_routing::configure(input.direct_processes.clone())?;
+    hysteria_cli::desktop_routing::configure(input.direct_processes.clone(), input.address_rules.clone())?;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "failed to observe local TUN termination".to_string())?;
     let shutdown = async {

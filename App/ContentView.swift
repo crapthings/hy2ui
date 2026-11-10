@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Identifies the home, selected-server editor, settings and diagnostic destinations.
 enum AppDestination: Hashable {
-    case home, server(UUID), servers, processes, settings, logs
+    case home, server(UUID), servers, appRules, addressRules, processes, settings, logs
 }
 
 /// Composes server navigation, the shared status toolbar and focused application screens.
@@ -97,8 +97,10 @@ struct ContentView: View {
                     }
                     navigationRow(model.localized("更多"), icon: "ellipsis", destination: .servers)
                     Color.clear.frame(height: 24).accessibilityHidden(true)
-                    navigationRow(model.localized("设置"), icon: "slider.horizontal.3", destination: .settings)
+                    navigationRow(model.localized("应用规则"), icon: "app.badge", destination: .appRules)
+                    navigationRow(model.localized("地址规则"), icon: "globe", destination: .addressRules)
                     navigationRow(model.localized("网络活动"), icon: "chart.bar", destination: .processes)
+                    navigationRow(model.localized("设置"), icon: "slider.horizontal.3", destination: .settings)
                     navigationRow(model.localized("日志"), icon: "text.alignleft", destination: .logs)
                 }.padding(.horizontal, 12)
             }
@@ -154,6 +156,8 @@ struct ContentView: View {
             }, add: {
                 if model.addServer() { destination = .server(model.profile.id) }
             })
+        case .appRules: AppRulesView(model: model)
+        case .addressRules: AddressRulesView(model: model, openSettings: { destination = .settings })
         case .processes: ProcessNetworkView(model: model)
         case .settings: AppSettingsView(model: model)
         case .logs: ConnectionLogsView(model: model)
@@ -165,6 +169,8 @@ struct ContentView: View {
         case .home: model.localized("概览")
         case .server: model.localized("服务器")
         case .servers: model.localized("服务器")
+        case .appRules: model.localized("应用规则")
+        case .addressRules: model.localized("地址规则")
         case .processes: model.localized("网络活动")
         case .settings: model.localized("设置")
         case .logs: model.localized("日志")

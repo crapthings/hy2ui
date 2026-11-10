@@ -9,6 +9,7 @@ final class SystemProxy {
         var serviceID: String
         var original: Data
         var installed: Data
+        var removedKeys: [String]?
     }
     private let pacServer = PACServer()
     private var authorization: AuthorizationRef?
@@ -17,8 +18,19 @@ final class SystemProxy {
     deinit { if let authorization { AuthorizationFree(authorization, []) } }
     var needsRecovery: Bool { FileManager.default.fileExists(atPath: journal.path) }
 
-    func enable(httpPort: Int, socksPort: Int) throws {
-        try install(SystemProxyConfiguration.manual(httpPort: httpPort, socksPort: socksPort))
+    func enable(httpPort: Int, socksPort: Int, routing: RoutingConfiguration) async throws {
+        // A local PAC handles simple names without the system flag that also bypasses public IPv6 literals.
+        guard !needsRecovery else { throw ConfigurationError.invalid("请先恢复上次连接的系统代理。") }
+        var policy = RoutingConfiguration(); policy.mode = .generatedPAC
+        policy.bypassLocalNetworks = routing.bypassLocalNetworks
+        do {
+            let url = try await pacServer.start(script: PACScript.generate(configuration: policy, httpPort: httpPort)).absoluteString
+            try Task.checkCancellation()
+            var settings = SystemProxyConfiguration.manual(httpPort: httpPort, socksPort: socksPort, bypassLocalNetworks: routing.bypassLocalNetworks)
+            settings["ProxyAutoConfigEnable"] = 1; settings["ProxyAutoConfigURLString"] = url
+            settings["ProxyAutoConfigJavaScript"] = ""
+            try install(settings)
+        } catch { if !needsRecovery { pacServer.stop() }; throw error }
     }
 
     func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws {
@@ -31,6 +43,7 @@ final class SystemProxy {
             } else { url = configuration.pacURL }
             try Task.checkCancellation()
             var settings = SystemProxyConfiguration.pac(url: url)
+            settings["ExceptionsList"] = [String]()
             settings["ProxyAutoConfigJavaScript"] = ""
             try install(settings)
         } catch {
@@ -55,9 +68,10 @@ final class SystemProxy {
                     "SOCKSProxy": "", "SOCKSPort": 0, "ProxyAutoConfigURLString": "", "ProxyAutoConfigJavaScript": ""]
                 for (key, value) in fallback where installed[key] == nil { installed[key] = original[key] ?? value }
                 var updated = original
+                updated.removeValue(forKey: "ExcludeSimpleHostnames")
                 updated.merge(installed) { _, new in new }
                 entries.append(Entry(serviceID: serviceID as String,
-                    original: try Self.encode(original), installed: try Self.encode(installed)))
+                    original: try Self.encode(original), installed: try Self.encode(installed), removedKeys: ["ExcludeSimpleHostnames"]))
                 changes.append((proto, updated))
             }
             guard !entries.isEmpty else { throw ConfigurationError.invalid("没有可设置代理的网络服务。") }
@@ -80,7 +94,7 @@ final class SystemProxy {
                 var current = SCNetworkProtocolGetConfiguration(proto) as? [String: Any] ?? [:]
                 let original = try Self.decode(entry.original)
                 let installed = try Self.decode(entry.installed)
-                current = ProxyOwnership.restore(current: current, original: original, installed: installed)
+                current = ProxyOwnership.restore(current: current, original: original, installed: installed, removedKeys: entry.removedKeys ?? [])
                 guard SCNetworkProtocolSetConfiguration(proto, current as CFDictionary) else { throw self.failure() }
             }
         }

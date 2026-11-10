@@ -16,7 +16,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(ConfigurationError.invalid("请从 Hy2UI 发起连接；此版本不支持系统自动启动。"))
             return
         }
-        guard (1280...1500).contains(mtu.intValue), !dns.isEmpty else {
+        guard let core = try? DesktopCoreConfiguration.coreOnly(config), (1280...1500).contains(mtu.intValue), !dns.isEmpty else {
             completionHandler(ConfigurationError.invalid("隧道网络配置无效。"))
             return
         }
@@ -28,12 +28,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
             }
             self.engine.stop()
-            self.engine.start(session: token, configuration: config, mtu: mtu.intValue, completion: { result in
+            self.engine.start(session: token, configuration: core, mtu: mtu.intValue, completion: { result in
                 guard self.sessions.contains(token) else { return }
                 switch result {
                 case let .failure(error): self.sessions.finish(token, result: .failure(error))
                 case let .success(remoteAddress):
-                    self.installSettings(remoteAddress: remoteAddress, mtu: mtu, dns: dns, session: token)
+                    self.installSettings(remoteAddress: remoteAddress, mtu: mtu, dns: dns, bypass: (options?["bypassLocalNetworks"] as? NSNumber)?.boolValue ?? true, session: token)
                 }
             }, failure: { error in
                 guard self.sessions.contains(token) else { return }
@@ -53,12 +53,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    private func installSettings(remoteAddress: String, mtu: NSNumber, dns: [String], session: UUID) {
+    private func installSettings(remoteAddress: String, mtu: NSNumber, dns: [String], bypass: Bool, session: UUID) {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: remoteAddress)
         let ipv4 = NEIPv4Settings(addresses: ["198.18.0.1"], subnetMasks: ["255.255.255.0"])
         ipv4.includedRoutes = [.default()]
+        if bypass { ipv4.excludedRoutes = LocalNetworkPolicy.ipv4.compactMap { try? IPNetwork($0) }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) } }
         let ipv6 = NEIPv6Settings(addresses: ["fd72:6832::1"], networkPrefixLengths: [64])
         ipv6.includedRoutes = [.default()]
+        if bypass { ipv6.excludedRoutes = LocalNetworkPolicy.ipv6.compactMap { try? IPNetwork($0) }.map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) } }
         settings.ipv4Settings = ipv4
         settings.ipv6Settings = ipv6
         settings.mtu = mtu

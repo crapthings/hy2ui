@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify bounded native ownership snapshots and stale-owner rejection using child loopback sockets."""
 import ctypes
+import errno
 import json
 import pathlib
 import socket
@@ -39,12 +40,15 @@ def main():
     subprocess.run(['xcrun', 'clang', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-dynamiclib',
                     str(root / 'Native/bridge/process_routing.c'), '-framework', 'SystemConfiguration',
                     '-framework', 'CoreFoundation', '-o', str(library)], check=True)
-    adapter = ctypes.CDLL(str(library))
+    adapter = ctypes.CDLL(str(library), use_errno=True)
     emit = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(Owner), ctypes.c_char_p, ctypes.c_void_p)
     adapter.hy2_collect_flow_owners.argtypes = [emit, ctypes.c_void_p]
     adapter.hy2_validate_flow_owner.argtypes = [ctypes.POINTER(Owner), ctypes.c_char_p]
     assert ctypes.sizeof(Owner) == 72
     assert adapter.hy2_process_lookup_available() == 1
+    adapter.hy2_bind_direct_socket.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+    assert adapter.hy2_bind_direct_socket(-1, 1, 0) == -1
+    assert ctypes.get_errno() == errno.ENETUNREACH
     times = []
 
     def snapshot():

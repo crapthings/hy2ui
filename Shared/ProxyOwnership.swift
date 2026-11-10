@@ -11,7 +11,7 @@ public enum ProxyOwnership {
     ]
 
     /// Restores owned endpoint groups and independent settings without combining them with external edits.
-    public static func restore(current: [String: Any], original: [String: Any], installed: [String: Any]) -> [String: Any] {
+    public static func restore(current: [String: Any], original: [String: Any], installed: [String: Any], removedKeys: [String] = []) -> [String: Any] {
         var result = current
         var independentKeys = Set(installed.keys)
         for group in endpointGroups {
@@ -24,6 +24,7 @@ public enum ProxyOwnership {
         for key in independentKeys where matches(current[key], installed[key]) {
             result[key] = original[key]
         }
+        for key in removedKeys where current[key] == nil { result[key] = original[key] }
         return result
     }
 

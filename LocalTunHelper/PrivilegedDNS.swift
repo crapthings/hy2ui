@@ -9,14 +9,16 @@ final class PrivilegedDNS {
         let original: [String]?
         let installed: [String]
     }
+    private let localResolvers = LocalDNSResolvers()
     private let journal = URL(fileURLWithPath: LocalTunWire.journalPath)
     var needsRecovery: Bool { var metadata = stat(); return lstat(journal.path, &metadata) == 0 }
 
-    func enable(servers: [String]) throws {
+    func enable(servers: [String], bypassLocalNetworks: Bool = true) throws {
         guard !needsRecovery else { throw HelperFailure("存在待恢复的 DNS 设置，请先恢复。") }
         try transaction { preferences in
             guard let set = SCNetworkSetCopyCurrent(preferences),
                   let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { throw failure() }
+            try localResolvers.prepare(services: services, enabled: bypassLocalNetworks)
             var entries: [Entry] = []
             var changes: [(SCNetworkProtocol, [String: Any])] = []
             for service in services where SCNetworkServiceGetEnabled(service) {
@@ -38,7 +40,7 @@ final class PrivilegedDNS {
     }
 
     func restore() throws {
-        guard needsRecovery else { return }
+        guard needsRecovery else { localResolvers.clear(); return }
         try TrustedInstallation.requireRootFile(journal.path)
         let data = try Data(contentsOf: journal)
         guard data.count <= 1_048_576 else { throw HelperFailure("DNS 恢复记录大小无效。") }
@@ -55,6 +57,7 @@ final class PrivilegedDNS {
             }
         }
         try FileManager.default.removeItem(at: journal)
+        localResolvers.clear()
     }
 
     private func writeJournal(_ entries: [Entry]) throws {

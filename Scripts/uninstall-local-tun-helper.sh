@@ -53,7 +53,7 @@ done
 if /bin/launchctl print "system/$label" >/dev/null 2>&1; then /bin/launchctl bootout "system/$label"; fi
 if [[ -e "$helper_path" ]]; then
   recover_dns
-elif [[ -e "$helper_directory/dns-recovery.plist" || -L "$helper_directory/dns-recovery.plist" ]]; then
+elif [[ -e "$helper_directory/dns-recovery.plist" || -L "$helper_directory/dns-recovery.plist" || -e "$helper_directory/direct-routes.json" || -L "$helper_directory/direct-routes.json" ]]; then
   echo 'DNS recovery exists but the installed recovery helper is missing; leaving installed files intact.' >&2
   exit 1
 fi

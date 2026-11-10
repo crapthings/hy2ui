@@ -129,10 +129,13 @@ public final class ConnectionCoordinator {
             try Task.checkCancellation()
             if profile.systemProxyEnabled {
                 workerOwned = true
-                try await worker.start(configuration: resolvedConfiguration, credentials: credentials)
+                try await worker.start(configuration: DesktopCoreConfiguration.coreOnly(resolvedConfiguration), credentials: credentials)
                 try ensureCurrentStartup(token)
                 guard worker.isRunning else { throw ConfigurationError.invalid("Rust 客户端已停止，未启用系统代理。") }
-                if routing.mode == .manual { try proxy.enable(httpPort: profile.httpPort, socksPort: profile.socksPort) }
+                if routing.mode == .manual {
+                    try await proxy.enable(httpPort: profile.httpPort, socksPort: profile.socksPort, routing: routing)
+                    try ensureCurrentStartup(token)
+                }
                 else {
                     guard let automatic = proxy as? any PACProxyControlling else { throw ConfigurationError.invalid("当前系统代理后端不支持 PAC。") }
                     try await automatic.enablePAC(configuration: routing, httpPort: profile.httpPort)

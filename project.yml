@@ -95,14 +95,18 @@ targets:
           - $(SRCROOT)/Native/bridge/src/bin/hy2-tun-worker.rs
           - $(SRCROOT)/Native/bridge/src/bin/local_tun/configuration.rs
           - $(SRCROOT)/Native/bridge/src/bin/local_tun/plan.rs
+          - $(SRCROOT)/Shared/LocalDNSPolicy.swift
+          - $(SRCROOT)/Shared/IPNetwork.swift
           - $(SRCROOT)/Shared/LocalTunIPC.swift
           - $(SRCROOT)/Shared/CoreDiagnosticParser.swift
+          - $(SRCROOT)/Shared/CoreFlowDiagnostic.swift
           - $(SRCROOT)/LocalTunHelper/main.swift
           - $(SRCROOT)/LocalTunHelper/TrustedInstallation.swift
           - $(SRCROOT)/LocalTunHelper/HelperSocket.swift
           - $(SRCROOT)/LocalTunHelper/HelperInstanceLock.swift
           - $(SRCROOT)/LocalTunHelper/PrivilegedWorker.swift
           - $(SRCROOT)/LocalTunHelper/PrivilegedDNS.swift
+          - $(SRCROOT)/LocalTunHelper/LocalDNSResolvers.swift
           - $(SRCROOT)/LocalTunHelper/LocalTunServer.swift
           - $(SRCROOT)/Native/include/Hy2Bridge.h
           - $(SRCROOT)/Patches/core-embedding.patch

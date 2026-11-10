@@ -70,8 +70,9 @@ final class VPNService: NSObject, OSSystemExtensionRequestDelegate {
             throw ConfigurationError.invalid("无法创建 VPN 会话。")
         }
         // Credentials travel only in the start message; never in persisted VPN preferences.
+        let core = try JSONSerialization.jsonObject(with: configuration) as? [String: Any]
         try session.startTunnel(options: [TunnelWire.configuration: configuration as NSData,
-            TunnelWire.mtu: NSNumber(value: profile.mtu), TunnelWire.dns: profile.dns as NSArray])
+            TunnelWire.mtu: NSNumber(value: profile.mtu), TunnelWire.dns: profile.dns as NSArray, "bypassLocalNetworks": NSNumber(value: core?["desktopBypassLocalNetworks"] as? Bool ?? true)])
     }
 
     func cancelPendingActivation() {

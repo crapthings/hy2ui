@@ -38,7 +38,7 @@ trap 'rm -f "$helper_temporary"; rmdir "$helper_staging"' EXIT
 swift_flags=(-Onone)
 if [ "$configuration" = release ]; then swift_flags=(-O); fi
 xcrun swiftc -parse-as-library -swift-version 5 -target "$architecture-apple-macos14.0" \
-  "${swift_flags[@]}" Shared/LocalTunIPC.swift Shared/CoreDiagnosticParser.swift LocalTunHelper/*.swift -o "$helper_temporary"
+  "${swift_flags[@]}" Shared/LocalDNSPolicy.swift Shared/IPNetwork.swift Shared/LocalTunIPC.swift Shared/CoreFlowDiagnostic.swift Shared/CoreDiagnosticParser.swift LocalTunHelper/*.swift -o "$helper_temporary"
 chmod 755 "$helper_temporary"
 if ! cmp -s "$helper_temporary" "$artifacts/hy2-local-tun-helper"; then
   mv "$helper_temporary" "$artifacts/hy2-local-tun-helper"

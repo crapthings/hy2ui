@@ -17,13 +17,27 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
     public var directDomains: [String] = []
     public var bypassLocalNetworks = true
     public var directProcesses: [String] = []
+    public var addressRules: [AddressRule] = []
     public init() {}
 
+    private enum CodingKeys: String, CodingKey { case version, mode, pacURL, directDomains, bypassLocalNetworks, directProcesses, addressRules }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        mode = try values.decode(SystemProxyMode.self, forKey: .mode)
+        pacURL = try values.decode(String.self, forKey: .pacURL)
+        directDomains = try values.decode([String].self, forKey: .directDomains)
+        bypassLocalNetworks = try values.decode(Bool.self, forKey: .bypassLocalNetworks)
+        directProcesses = try values.decodeIfPresent([String].self, forKey: .directProcesses) ?? []
+        addressRules = try values.decodeIfPresent([AddressRule].self, forKey: .addressRules) ?? []
+    }
+
     public func validate() throws {
-        guard version == 1, directDomains.count <= 128, directProcesses.count <= 64 else {
+        guard version == 1, directDomains.count <= 128, directProcesses.count <= 64, addressRules.count <= 128, Set(addressRules.map(\.target)).count == addressRules.count else {
             throw ConfigurationError.invalid("分流配置版本或规则数量无效。")
         }
         for domain in directDomains { _ = try Self.domain(domain) }
+        for rule in addressRules { try rule.validate() }
         for pattern in directProcesses { try ProcessRulePattern.validate(pattern) }
         if mode == .externalPAC {
             guard let url = URL(string: pacURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
@@ -42,9 +56,7 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
         if systemProxy && enhanced && mode != .manual {
             throw ConfigurationError.invalid("使用 PAC 时请关闭增强模式，避免直连流量再次被接管。")
         }
-        if !directProcesses.isEmpty && (systemProxy || !enhanced || backend != .localTun) {
-            throw ConfigurationError.invalid("应用直连目前需要仅开启本地增强模式。")
-        }
+
     }
 
     public static func domain(_ input: String) throws -> String {

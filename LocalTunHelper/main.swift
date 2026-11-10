@@ -14,6 +14,7 @@ struct LocalTunHelperMain {
             let arguments = Array(CommandLine.arguments.dropFirst())
             if arguments == ["--recover-dns"] {
                 try PrivilegedDNS().restore()
+                try PrivilegedWorker.recoverDirectRoutes()
                 return
             }
             guard arguments.count == 2, arguments[0] == "--allowed-uid",

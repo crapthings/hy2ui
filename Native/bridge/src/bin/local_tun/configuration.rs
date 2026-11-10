@@ -18,7 +18,14 @@ pub struct LocalTunConfiguration {
     pub dns: Vec<String>,
     #[serde(default)]
     pub direct_processes: Vec<String>,
+    #[serde(default = "default_bypass")]
+    pub bypass_local_networks: bool,
+    #[serde(default)]
+    pub address_rules: Vec<String>,
 }
+
+/// Defaults local traffic to its existing physical routes for older request payloads.
+fn default_bypass() -> bool { true }
 
 /// Reads one bounded JSON message and rejects unsupported fields without echoing secrets.
 pub fn read_configuration(reader: impl Read) -> Result<LocalTunConfiguration, String> {
@@ -39,6 +46,7 @@ pub fn read_configuration(reader: impl Read) -> Result<LocalTunConfiguration, St
 /// Enforces the endpoint and network boundaries before any privileged operation is attempted.
 impl LocalTunConfiguration {
     pub fn validate(&self) -> Result<(), String> {
+        hysteria_cli::desktop_address_policy::AddressIndex::new(&self.address_rules)?;
         if self.direct_processes.len() > 64 || self.direct_processes.iter().any(|p| p.is_empty() || p.len() > 1024 || p.chars().any(char::is_control)) {
             return Err("invalid application routing patterns".into());
         }

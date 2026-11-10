@@ -37,7 +37,7 @@ public protocol ProxyWorkerControlling: AnyObject {
 @MainActor
 public protocol SystemProxyControlling: AnyObject {
     var needsRecovery: Bool { get }
-    func enable(httpPort: Int, socksPort: Int) throws
+    func enable(httpPort: Int, socksPort: Int, routing: RoutingConfiguration) async throws
     func restore() throws
 }
 

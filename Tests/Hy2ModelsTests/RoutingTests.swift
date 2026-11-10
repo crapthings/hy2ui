@@ -43,7 +43,7 @@ struct RoutingTests {
         #expect(throws: (any Error).self) { try config.validateCapture(systemProxy: true, enhanced: true, backend: .localTun) }
         try config.validateCapture(systemProxy: true, enhanced: false, backend: .localTun)
         config.directProcesses = ["curl"]
-        #expect(throws: (any Error).self) { try config.validateCapture(systemProxy: true, enhanced: false, backend: .localTun) }
+        try config.validateCapture(systemProxy: true, enhanced: false, backend: .localTun)
         try config.validateCapture(systemProxy: false, enhanced: true, backend: .localTun)
         for domain in ["https://example.com", "*.example.com", "a\";evil()", ".com", "a..com"] {
             #expect(throws: (any Error).self) { try RoutingConfiguration.domain(domain) }

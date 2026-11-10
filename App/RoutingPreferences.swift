@@ -6,6 +6,7 @@ import Observation
 final class RoutingPreferences {
     private(set) var configuration = RoutingConfiguration()
     private(set) var error: String?
+    private(set) var revision = 0
     private let defaults: UserDefaults
     private var writable = true
     private static let key = "routingConfiguration"
@@ -34,6 +35,7 @@ final class RoutingPreferences {
         var persisted = next
         if persisted.mode == .externalPAC && persisted.pacURL.isEmpty { persisted.mode = .manual }
         defaults.set(try JSONEncoder().encode(persisted), forKey: Self.key)
+        if configuration != next { revision += 1 }
         configuration = next; error = nil
     }
 }

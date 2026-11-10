@@ -5,6 +5,7 @@ public struct CoreDiagnosticParser: Sendable {
     private var line: [UInt8] = []
     private var discardingLine = false
     private var pending: [LocalTunCoreEvent] = []
+    private var flowDiagnostics: [CoreFlowDiagnostic] = []
     private var telemetry: [CoreTelemetry] = []
     private var connectionSeen = false
     private var tunnelSeen = false
@@ -35,6 +36,11 @@ public struct CoreDiagnosticParser: Sendable {
         return telemetry
     }
 
+    public mutating func drainFlowDiagnostics() -> [CoreFlowDiagnostic] {
+        defer { flowDiagnostics.removeAll(keepingCapacity: true) }
+        return flowDiagnostics
+    }
+
     private static func hasSyntheticTarget(_ text: String) -> Bool {
         guard let arrow = text.range(of: " -> "),
               let failure = text.range(of: " connect failed: ", range: arrow.upperBound..<text.endIndex) else { return false }
@@ -51,6 +57,11 @@ public struct CoreDiagnosticParser: Sendable {
         if let sample = CoreTelemetry.parse(text) {
             if telemetry.count == 8 { telemetry.removeFirst() }
             telemetry.append(sample)
+            return
+        }
+        if let diagnostic = CoreFlowDiagnostic.parse(text) {
+            if flowDiagnostics.count == 32 { flowDiagnostics.removeFirst() }
+            flowDiagnostics.append(diagnostic)
             return
         }
         let event: LocalTunCoreEvent?

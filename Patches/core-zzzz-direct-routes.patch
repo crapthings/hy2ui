@@ -1,0 +1,41 @@
+--- a/crates/hysteria/src/lib.rs
++++ b/crates/hysteria/src/lib.rs
+@@ -61,3 +61,6 @@
+ 
+ /// Provides bounded error classification for desktop TUN diagnostics.
+ pub mod desktop_flow_diagnostics;
++
++/// Plans scoped physical exits for macOS direct process sockets.
++pub mod desktop_direct_routes;
+--- a/crates/hysteria/src/tun.rs
++++ b/crates/hysteria/src/tun.rs
+@@ -393,6 +393,8 @@
+     }
+ 
+     struct RouteSet {
++        #[cfg(target_os = "macos")]
++        direct_routes: Option<crate::desktop_direct_routes::DirectRoutes>,
+         manager: RouteManager,
+         installed: Vec<Route>,
+         #[cfg(target_os = "linux")]
+@@ -428,6 +430,8 @@
+                 CliError::new(format!("failed to inspect system routes: {error}"))
+             })?;
+             let mut routes = Self {
++                #[cfg(target_os = "macos")]
++                direct_routes: None,
+                 manager,
+                 installed: Vec::new(),
+                 #[cfg(target_os = "linux")]
+@@ -445,6 +449,11 @@
+                 None
+             };
+ 
++            #[cfg(target_os = "macos")]
++            if let Some((ipv4, ipv6)) = crate::desktop_routing::direct_interfaces() {
++                routes.direct_routes = Some(crate::desktop_direct_routes::DirectRoutes::install(&original, ipv4, ipv6)
++                    .map_err(|error| CliError::new(format!("failed to prepare scoped direct routes: {error}")))?);
++            }
+             for (destination, prefix) in parsed.ipv4_exclude.into_iter().chain(parsed.ipv6_exclude)
+             {
+                 let base = original

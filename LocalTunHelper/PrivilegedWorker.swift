@@ -59,6 +59,7 @@ final class PrivilegedWorker {
     func takeDiagnosticEvents() -> [LocalTunEvent] {
         lock.lock(); defer { lock.unlock() }
         return diagnostics.drain().map { LocalTunEvent(kind: .log, message: $0.message, coreEvent: $0) }
+            + diagnostics.drainFlowDiagnostics().map { LocalTunEvent(kind: .log, message: $0.logMessage) }
             + diagnostics.drainTelemetry().map { LocalTunEvent(kind: .log, metrics: $0) }
     }
 
@@ -86,6 +87,32 @@ final class PrivilegedWorker {
         lock.unlock()
         for handle in [input.fileHandleForReading, input.fileHandleForWriting,
                        output.fileHandleForWriting] { try? handle.close() }
+        if process.processIdentifier > 0 { try Self.recoverDirectRoutes() }
+    }
+
+    /// Recovers journaled direct routes through the fixed trusted worker after a crash or before replacement.
+    static func recoverDirectRoutes() throws {
+        guard FileManager.default.fileExists(atPath: LocalTunWire.directRoutesJournalPath) else { return }
+        try TrustedInstallation.validate()
+        let recovery = Process()
+        recovery.executableURL = URL(fileURLWithPath: LocalTunWire.workerPath)
+        recovery.arguments = ["--recover-direct-routes"]
+        recovery.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HYSTERIA_DISABLE_UPDATE_CHECK": "1"]
+        recovery.standardInput = FileHandle.nullDevice
+        recovery.standardOutput = FileHandle.nullDevice
+        recovery.standardError = FileHandle.nullDevice
+        try recovery.run()
+        let deadline = ContinuousClock.now + .seconds(3)
+        while recovery.isRunning && ContinuousClock.now < deadline { Thread.sleep(forTimeInterval: 0.02) }
+        if recovery.isRunning { recovery.terminate() }
+        let killDeadline = ContinuousClock.now + .seconds(1)
+        while recovery.isRunning && ContinuousClock.now < killDeadline { Thread.sleep(forTimeInterval: 0.02) }
+        if recovery.isRunning { kill(recovery.processIdentifier, SIGKILL) }
+        let reapedDeadline = ContinuousClock.now + .seconds(1)
+        while recovery.isRunning && ContinuousClock.now < reapedDeadline { Thread.sleep(forTimeInterval: 0.02) }
+        guard !recovery.isRunning, recovery.terminationStatus == 0 else {
+            throw HelperFailure("后台网络恢复失败，请重试清理。", failure: LocalTunFailure(.recoveryFailed))
+        }
     }
 
     private func writeConfiguration(_ data: Data, connection: HelperSocket, termination: HelperTermination) throws {

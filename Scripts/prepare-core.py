@@ -33,7 +33,7 @@ def verify_source(source):
 def generation_key(root, patches):
     """Identify prepared source by the pinned revision and every adapter input."""
     digest = hashlib.sha256(PINNED_COMMIT.encode())
-    for path in [root / 'Patches/netstack-smoltcp-0.2.5.patch', pathlib.Path(__file__).resolve(), *patches, root / 'Patches/embedded.rs', root / 'Patches/desktop-routing.rs', root / 'Patches/desktop-rule-index.rs', root / 'Patches/desktop-flow-index.rs', root / 'Patches/desktop-process-owners.rs']:
+    for path in [root / 'Patches/netstack-smoltcp-0.2.5.patch', pathlib.Path(__file__).resolve(), *patches, root / 'Patches/embedded.rs', root / 'Patches/desktop-routing.rs', root / 'Patches/desktop-rule-index.rs', root / 'Patches/desktop-flow-index.rs', root / 'Patches/desktop-process-owners.rs', root / 'Patches/desktop-flow-diagnostics.rs', root / 'Patches/desktop-direct-routes.rs', root / 'Patches/desktop-address-policy.rs']:
         digest.update(path.name.encode())
         digest.update(path.read_bytes())
     return digest.hexdigest()
@@ -87,7 +87,7 @@ def prepare_generation(root, source, destination, patches):
         prepare_netstack(root, staging)
         shutil.copyfile(root / 'Patches/embedded.rs', staging / 'crates/hysteria/src/embedded.rs')
         shutil.copyfile(root / 'Patches/desktop-routing.rs', staging / 'crates/hysteria/src/desktop_routing.rs')
-        for adapter in ['desktop-rule-index', 'desktop-flow-index', 'desktop-process-owners']:
+        for adapter in ['desktop-rule-index', 'desktop-flow-index', 'desktop-process-owners', 'desktop-flow-diagnostics', 'desktop-direct-routes', 'desktop-address-policy']:
             shutil.copyfile(root / f'Patches/{adapter}.rs', staging / f'crates/hysteria/src/{adapter.replace("-", "_")}.rs')
         (staging / '.hy2-prepared.json').write_text(json.dumps({'commit': PINNED_COMMIT, 'generation': destination.name}) + '\n')
         staging.rename(destination)

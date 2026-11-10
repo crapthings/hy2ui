@@ -17,6 +17,7 @@ final class LocalTunServer {
     func run() throws {
         try TrustedInstallation.validate()
         try dns.restore()
+        try PrivilegedWorker.recoverDirectRoutes()
         try createListener()
         defer { if listener >= 0 { close(listener) }; unlink(LocalTunWire.socketPath) }
         while !termination.isRequested {
@@ -69,7 +70,7 @@ final class LocalTunServer {
             let current = PrivilegedWorker()
             worker = current
             try current.start(configuration: configuration, connection: connection, termination: termination)
-            try dns.enable(servers: configuration.dns)
+            try dns.enable(servers: configuration.dns, bypassLocalNetworks: configuration.bypassLocalNetworks ?? true)
             guard current.isRunning else {
                 throw HelperFailure("TUN 客户端已退出。", failure: current.exitFailure())
             }

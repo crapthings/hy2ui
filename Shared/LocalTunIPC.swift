@@ -6,6 +6,7 @@ public enum LocalTunWire {
     public static let installationDirectory = "/Library/PrivilegedHelperTools/dev.hy2ui"
     public static let socketPath = installationDirectory + "/control.sock"
     public static let workerPath = installationDirectory + "/hy2-tun-worker"
+    public static let directRoutesJournalPath = installationDirectory + "/direct-routes.json"
     public static let journalPath = installationDirectory + "/dns-recovery.plist"
     public static let maxMessageBytes = 65_536
 }
@@ -20,10 +21,12 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
     public let mtu: Int
     public let dns: [String]
     public let directProcesses: [String]?
+    public let bypassLocalNetworks: Bool?
+    public let addressRules: [String]?
 
     public init(host: String, port: Int, serverName: String = "", password: String,
                 obfuscationPassword: String = "", mtu: Int = 1400,
-                dns: [String] = ["1.1.1.1", "2606:4700:4700::1111"], directProcesses: [String]? = nil) {
+                dns: [String] = ["1.1.1.1", "2606:4700:4700::1111"], directProcesses: [String]? = nil, bypassLocalNetworks: Bool? = nil, addressRules: [String]? = nil) {
         self.host = host
         self.port = port
         self.serverName = serverName
@@ -32,9 +35,18 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
         self.mtu = mtu
         self.dns = dns
         self.directProcesses = directProcesses
+        self.bypassLocalNetworks = bypassLocalNetworks
+        self.addressRules = addressRules
     }
 
     public func validate() throws {
+        if let rules = addressRules {
+            guard rules.count <= 128 else { throw LocalTunProtocolError.invalidConfiguration }
+            for rule in rules {
+                let parts = rule.split(separator: ",", omittingEmptySubsequences: false)
+                guard parts.count == 2, ["direct", "proxy"].contains(String(parts[0])), (try? IPNetwork(String(parts[1]))) != nil else { throw LocalTunProtocolError.invalidConfiguration }
+            }
+        }
         if let patterns = directProcesses {
             guard patterns.count <= 64, patterns.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 && !$0.contains(",") && !$0.contains("\\") && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines) && (!$0.contains("/") || $0.hasPrefix("/")) && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }) else {
                 throw LocalTunProtocolError.invalidConfiguration
@@ -161,7 +173,7 @@ public enum LocalTunMessageCodec {
             throw LocalTunProtocolError.invalidMessage
         }
         if let configuration = dictionary["configuration"] as? [String: Any] {
-            let allowed: Set<String> = ["host", "port", "serverName", "password", "obfuscationPassword", "mtu", "dns", "directProcesses"]
+            let allowed: Set<String> = ["host", "port", "serverName", "password", "obfuscationPassword", "mtu", "dns", "directProcesses", "bypassLocalNetworks", "addressRules"]
             guard Set(configuration.keys).isSubset(of: allowed) else { throw LocalTunProtocolError.invalidMessage }
         }
         let request = try JSONDecoder().decode(LocalTunRequest.self, from: data)

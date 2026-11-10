@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 Scripts/generate-installer-payload.py
 mkdir -p .build/helper-installer-tests
-xcrun swiftc -parse-as-library -swift-version 5 Shared/HelperInstallation.swift Shared/LocalTunIPC.swift \
+xcrun swiftc -parse-as-library -swift-version 5 Shared/HelperInstallation.swift Shared/IPNetwork.swift Shared/LocalTunIPC.swift \
   .build/generated/HelperInstallerPayload.swift App/HelperInstallationProbe.swift \
   App/HelperInstallerAuthorization.swift App/HelperInstallationManager.swift Tests/HelperInstallerSmoke/main.swift \
   -o .build/helper-installer-tests/helper-installer-smoke

@@ -13,9 +13,11 @@ final class AppModel {
     }
     func localized(_ value: String) -> String { AppLocalization.text(value, language: language) }
 
-    func localizedLog(_ value: String) -> String {
+    func localizedLog(_ value: String, detailed: Bool = true) -> String {
         guard let separator = value.range(of: "  ") else { return localized(value) }
-        return String(value[..<separator.upperBound]) + localized(String(value[separator.upperBound...]))
+        let body = String(value[separator.upperBound...])
+        let rendered = CoreFlowDiagnostic.fromLogMessage(body).map { $0.render(detailed: detailed, localized: localized) } ?? localized(body)
+        return String(value[..<separator.upperBound]) + rendered
     }
 
     private var session: ApplicationSession?
@@ -29,6 +31,8 @@ final class AppModel {
     let routing: RoutingPreferences
     let enhancedSetup: EnhancedModeOnboarding
     private(set) var isManagingHelper = false
+    private var connectedRouting: RoutingConfiguration?
+    var hasPendingRoutingChanges: Bool { state == .connected && connectedRouting != routing.configuration }
     private(set) var logs: [String] = []
 
     var profile: Profile {
@@ -184,20 +188,31 @@ final class AppModel {
     func connect() async {
         guard canConnect, let session else { return }
         do {
-            try routing.configuration.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend)
+            let selectedRouting = routing.configuration
+            try selectedRouting.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend)
             let base = try profile.coreConfiguration(credentials: credentials)
             var core = try JSONSerialization.jsonObject(with: base) as? [String: Any] ?? [:]
-            if !routing.configuration.directProcesses.isEmpty { core["desktopDirectProcesses"] = routing.configuration.directProcesses }
+            core["desktopBypassLocalNetworks"] = selectedRouting.bypassLocalNetworks
+            core["desktopAddressRules"] = selectedRouting.addressRules.filter { !$0.isDomain }.map { "\($0.action.rawValue),\($0.target)" }
+            if profile.enhancedModeEnabled && profile.enhancedBackend == .localTun && !profile.systemProxyEnabled { core["desktopDirectProcesses"] = selectedRouting.directProcesses }
             let configuration = try JSONSerialization.data(withJSONObject: core)
             try session.editor.save()
             session.editor.clearNotice()
             let connectedID = profile.id
-            await session.connection.connect(profile: profile, configuration: configuration, credentials: credentials, routing: routing.configuration)
-            if session.connection.state == .connected { serverList.recordUse(connectedID) }
+            await session.connection.connect(profile: profile, configuration: configuration, credentials: credentials, routing: selectedRouting)
+            if session.connection.state == .connected { connectedRouting = selectedRouting; serverList.recordUse(connectedID) }
         } catch {
             session.editor.report(error)
             log(error.localizedDescription)
         }
+    }
+
+    func reconnect() async {
+        guard state == .connected else { return }
+        do { try routing.configuration.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend) }
+        catch { session?.editor.report(error); return }
+        await disconnect()
+        if canConnect { await connect() }
     }
 
     func disconnect() async {
@@ -224,6 +239,8 @@ final class AppModel {
         }
         _ = await helperInstaller.perform(operation)
     }
+
+    func clearLogs() { logs.removeAll() }
 
     private func log(_ text: String) {
         logs.append("\(Date.now.formatted(date: .omitted, time: .standard))  \(text)")

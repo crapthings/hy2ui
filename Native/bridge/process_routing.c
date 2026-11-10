@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
 
 // Carries SDK socket identity and a normalized tuple across the native adapter boundary.
 struct hy2_flow_owner {
@@ -39,7 +40,6 @@ unsigned int hy2_direct_interface(int ipv6) {
     int family = ipv6 ? AF_INET6 : AF_INET;
     CFStringRef key = family == AF_INET6 ? CFSTR("State:/Network/Global/IPv6") : CFSTR("State:/Network/Global/IPv4");
     CFDictionaryRef settings = SCDynamicStoreCopyValue(NULL, key);
-    if (!settings && family == AF_INET6) settings = SCDynamicStoreCopyValue(NULL, CFSTR("State:/Network/Global/IPv4"));
     if (!settings || CFGetTypeID(settings) != CFDictionaryGetTypeID()) { if (settings) CFRelease(settings); return 0; }
     CFStringRef name = CFDictionaryGetValue(settings, CFSTR("PrimaryInterface"));
     char text[IF_NAMESIZE] = {0};
@@ -142,7 +142,7 @@ int hy2_validate_flow_owner(const struct hy2_flow_owner *expected, const char *e
 
 // Binds only the owned outgoing socket to the captured physical interface to avoid TUN recursion.
 int hy2_bind_direct_socket(int descriptor, int ipv6, unsigned int index) {
-    if (!index) return -1;
+    if (!index) { errno = ENETUNREACH; return -1; }
     return setsockopt(descriptor, ipv6 ? IPPROTO_IPV6 : IPPROTO_IP,
                       ipv6 ? IPV6_BOUND_IF : IP_BOUND_IF, &index, sizeof(index));
 }

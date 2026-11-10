@@ -29,6 +29,7 @@ impl TunPlan {
             endpoint.ip(),
             if endpoint.is_ipv4() { 32 } else { 128 }
         );
+        let (ipv4_routes, ipv6_routes) = hysteria_cli::desktop_address_policy::capture_routes(input.bypass_local_networks);
         let mut value = serde_json::json!({
             "server": endpoint.to_string(), "auth": input.password,
             "lazy": false, "tls": {"sni": tls_name},
@@ -37,8 +38,8 @@ impl TunPlan {
                 "address": {"ipv4": "198.18.0.1/30", "ipv6": "fd72:6832::1/126"},
                 "route": {
                     "strict": false,
-                    "ipv4": ["0.0.0.0/1", "128.0.0.0/1"],
-                    "ipv6": ["::/1", "8000::/1"],
+                    "ipv4": ipv4_routes,
+                    "ipv6": ipv6_routes,
                     "ipv4Exclude": if endpoint.is_ipv4() { vec![exclusion.clone()] } else { vec![] },
                     "ipv6Exclude": if endpoint.is_ipv6() { vec![exclusion] } else { vec![] }
                 }
@@ -120,8 +121,8 @@ mod tests {
         let routes = tun.route.unwrap();
         assert_eq!(routes.ipv4_exclude, ["203.0.113.8/32"]);
         assert!(routes.ipv6_exclude.is_empty());
-        assert_eq!(routes.ipv4, ["0.0.0.0/1", "128.0.0.0/1"]);
-        assert_eq!(routes.ipv6, ["::/1", "8000::/1"]);
+        assert_eq!(routes.ipv4, hysteria_cli::desktop_address_policy::capture_routes(true).0);
+        assert_eq!(routes.ipv6, hysteria_cli::desktop_address_policy::capture_routes(true).1);
     }
 
     /// Pins IPv6 servers while retaining hostname-based TLS identity and optional obfuscation.

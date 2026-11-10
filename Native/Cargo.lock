@@ -1269,8 +1269,10 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "hysteria-cli",
+ "hysteria-transport",
  "libc",
  "netstack-smoltcp",
+ "route_manager",
  "serde",
  "serde_json",
  "tempfile",

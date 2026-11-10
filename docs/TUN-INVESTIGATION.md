@@ -63,7 +63,7 @@ The relay spawns TCP tasks without an explicit concurrency bound or a client-sid
 
 The Swift parser maps all `TUN TCP ... transfer failed:` messages to one event and discards their underlying error category. Reset, broken pipe, timeout, protocol failure and a closed QUIC connection are consequently indistinguishable in the current UI. Some failures can be ordinary application cancellation. The core also suppresses repeated errors for five seconds, and the UI does not expose the suppressed count.
 
-Recommended diagnostics: allowlisted error kind and transfer phase, active/pending/peak TCP counts, queue occupancy and high-water marks, close-state counts, QUIC RTT/loss/reconnect counters, and worker CPU/RSS during a slow interval. Keep destination addresses, payloads and credentials out of user logs.
+Recommended diagnostics: allowlisted error kind and transfer phase, active/pending/peak TCP counts, queue occupancy and high-water marks, close-state counts, QUIC RTT/loss/reconnect counters, and worker CPU/RSS during a slow interval. Keep payloads, credentials and raw peer error messages out of user logs; expose validated destination addresses only in optional diagnostic details.
 
 ## Fix and validation order
 
@@ -97,3 +97,16 @@ The parser now distinguishes allowlisted timeout, reset, broken pipe, early EOF,
 The updated probe reports zero additional streams for ten repeated SYNs and no extra TIME-WAIT wait in write shutdown. New regression tests cover both IP families, client-first and server-first half-close, a 256 KiB binary response, abandoned-stream reset, and 1,028 repeated aborted connections reusing one tuple. A separate test sends a 16 KiB binary upload and receives a 256 KiB response through the real packet engine and a certificate-pinned loopback Hy2 server for both IP families.
 
 `python3 Scripts/diagnose-tun-stack.py` now tests the prepared client adapter by default. Add `--upstream` to compare the unpatched release in an isolated workspace. Long-duration real TUN throughput and memory-pressure testing still require a user-initiated helper update and connection.
+
+
+## Detailed follow-up evidence
+
+Subsequent failures can now be inspected by target IP/port, direct/proxy route, TCP/UDP protocol, failure phase and recognized error category. This is a diagnostic improvement rather than another presumed network fix. The log page exposes a details toggle and explicit Copy action; typed details stay in memory and do not retain raw peer messages or credentials. Unknown causes remain marked as unknown. New helper-generated details require a user-initiated helper update; old summary-only records cannot be expanded retroactively.
+
+## DIRECT egress alongside TUN
+
+A bound DIRECT socket still needs a route scoped to its physical interface. On a host with only an unscoped physical default, the TUN split defaults can leave an interface-bound socket without a usable route. The adapter now plans a scoped copy of the physical default for each selected, available address family. It does not add per-destination global bypasses. Pure route-plan tests cover family selection, existing scoped defaults and preservation of replacement routes. Automated checks do not install real routes; live verification requires a user-initiated helper update and reconnect.
+
+The worker keeps an ownership journal in the protected helper directory. Normal shutdown and supervisor recovery remove only exact route identities; the next helper startup also attempts recovery after a crash. Existing scoped routes are never journaled as owned. If the host has no physical IPv6 exit, DIRECT IPv6 reports that limitation explicitly. The server can still carry IPv6 through proxied flows.
+
+Targets in `198.18.0.0/15` receive a diagnostic hint because this reserved benchmark range is commonly used for synthetic DNS mappings. The hint does not prove which application supplied the address and does not flush caches or change DNS settings.
