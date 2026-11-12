@@ -30,6 +30,7 @@ struct AddressPolicyTests {
         let old = try JSONDecoder().decode(RoutingConfiguration.self, from: bytes)
         #expect(old.directDomains == ["example.com"] && old.directProcesses == ["curl"])
         #expect(old.addressRules.isEmpty && old.bypassLocalNetworks)
+        #expect(old.finalAction == .proxy)
         #expect(try JSONDecoder().decode(RoutingConfiguration.self, from: JSONEncoder().encode(old)) == old)
     }
     @Test func pacUsesMostSpecificRulesWithoutResolvingDomains() throws {
@@ -68,7 +69,10 @@ struct AddressPolicyTests {
         let invalid = LocalTunConfiguration(host: "example.com", port: 443, password: "test", addressRules: ["direct,example.com"])
         #expect(throws: (any Error).self) { try invalid.validate() }
         let legacy = LocalTunConfiguration(host: "example.com", port: 443, password: "test")
-        #expect(legacy.bypassLocalNetworks == nil && legacy.addressRules == nil)
+        #expect(legacy.bypassLocalNetworks == nil && legacy.addressRules == nil && legacy.finalDirect == nil)
+        let direct = LocalTunConfiguration(host: "example.com", port: 443, password: "test", finalDirect: true)
+        let directData = try LocalTunMessageCodec.encode(LocalTunRequest(command: .start, configuration: direct))
+        #expect(try LocalTunMessageCodec.decodeRequest(directData).configuration == direct)
     }
     @Test func localDNSNeverUsesSyntheticResolversOrRootSuffix() {
         #expect(LocalDNSPolicy.domains(search: [".", "", "corp.example", "CORP.EXAMPLE.", "a/b", "com"]) == ["com", "corp.example", "home.arpa"])
@@ -104,11 +108,30 @@ struct AddressPolicyTests {
         #expect(ProxyOwnership.restore(current: ["ExcludeSimpleHostnames": 0], original: original, installed: [:], removedKeys: ["ExcludeSimpleHostnames"])["ExcludeSimpleHostnames"] as? Int == 0)
     }
     @Test func desktopCaptureMetadataDoesNotReachStrictCore() throws {
-        let input = Data(#"{"server":"example.com:443","auth":"test","desktopBypassLocalNetworks":true,"desktopAddressRules":["direct,203.0.113.0/24"],"desktopDirectProcesses":["curl"]}"#.utf8)
+        let input = Data(#"{"server":"example.com:443","auth":"test","desktopBypassLocalNetworks":true,"desktopAddressRules":["direct,203.0.113.0/24"],"desktopDirectProcesses":["curl"],"desktopFinalDirect":true}"#.utf8)
         let core = try #require(JSONSerialization.jsonObject(with: DesktopCoreConfiguration.coreOnly(input)) as? [String: Any])
         #expect(core["server"] as? String == "example.com:443")
         #expect(core["desktopBypassLocalNetworks"] == nil && core["desktopAddressRules"] == nil && core["desktopDirectProcesses"] == nil)
+        #expect(core["desktopFinalDirect"] == nil)
+        #expect(try DesktopCoreConfiguration.finalDirect(in: input))
+        #expect(try DesktopCoreConfiguration.finalDirect(in: Data("{}".utf8)) == false)
+        #expect(throws: (any Error).self) {
+            try DesktopCoreConfiguration.finalDirect(in: Data(#"{"desktopFinalDirect":"true"}"#.utf8))
+        }
         #expect(try DesktopCoreConfiguration.coreOnly(Data()) == Data())
+    }
+
+    /// Rejects missing or malformed desktop metadata instead of silently choosing a different routing policy.
+    @Test func desktopCaptureMetadataRequiresAnExplicitBoolean() throws {
+        #expect(try DesktopCoreConfiguration.bypassLocalNetworks(in: Data(#"{"desktopBypassLocalNetworks":false}"#.utf8)) == false)
+        #expect(try DesktopCoreConfiguration.bypassLocalNetworks(in: Data(#"{"desktopBypassLocalNetworks":true}"#.utf8)))
+        for json in ["{}", "[]", #"{"desktopBypassLocalNetworks":1}"#, #"{"desktopBypassLocalNetworks":"false"}"#] {
+            #expect(throws: (any Error).self) { try DesktopCoreConfiguration.bypassLocalNetworks(in: Data(json.utf8)) }
+        }
+        #expect(throws: (any Error).self) { try DesktopCoreConfiguration.object(Data("[]".utf8)) }
+        #expect(throws: (any Error).self) { try DesktopCoreConfiguration.object(Data()) }
+        let object = try DesktopCoreConfiguration.object(Data(#"{"server":"example.com:443"}"#.utf8))
+        #expect(object["server"] as? String == "example.com:443")
     }
 
 }

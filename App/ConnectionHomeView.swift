@@ -1,93 +1,55 @@
 import SwiftUI
 
-/// Combines connection controls with live transport metrics and daily traffic totals.
+/// Presents capture switches, connection errors and the supported CLI management cards.
 struct ConnectionHomeView: View {
     @Bindable var model: AppModel
     var openSettings: () -> Void
     var editServer: () -> Void
+    var openPolicies: () -> Void
+    var openRules: () -> Void
     var openActivity: () -> Void
+    var openLogs: () -> Void
 
-    private var connected: Bool { model.state == .connected }
-    private var working: Bool { model.state == .connecting || model.state == .stopping || model.isManagingHelper }
-    private var actionTitle: String {
-        if model.needsConnectionCleanup { return model.localized("重试清理") }
-        switch model.state {
-        case .connecting: return model.localized("取消连接")
-        case .connected: return model.localized("断开连接")
-        case .stopping: return model.localized("正在断开")
-        default: return model.localized("连接")
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                    attention
+                    DashboardTrafficView(model: model, wide: geometry.size.width >= 1000,
+                                         openPolicies: openPolicies, openRules: openRules, openActivity: openActivity, openLogs: openLogs)
+                }
+                .padding(AppTheme.pagePadding)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         }
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                Text(model.localized("概览")).font(AppTheme.pageTitle)
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "server.rack").font(.system(size: 21, weight: .regular))
-                            .frame(width: 44, height: 44)
-                            .background(AppTheme.cloud, in: RoundedRectangle(cornerRadius: 8))
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(model.hasServer ? model.profile.name : model.localized("还没有服务器"))
-                                .font(AppTheme.sectionTitle).lineLimit(2)
-                            if model.hasServer {
-                                Text(model.profile.serverAddress)
-                                    .font(AppTheme.caption).foregroundStyle(AppTheme.muted).textSelection(.enabled)
-                            }
-                        }
-                        Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(model.localized("QUIC 延迟")).font(AppTheme.caption).foregroundStyle(AppTheme.muted)
-                            Text(model.state == .connected ? model.dashboard.latencyMilliseconds.map { "\(Int($0.rounded())) ms" } ?? "—" : "—")
-                                .font(AppTheme.body).monospacedDigit()
-                        }
-                        Button(model.hasServer ? model.localized("编辑") : model.localized("添加"), action: editServer)
-                            .buttonStyle(AppActionStyle()).disabled(model.editingDisabled)
-                    }
-                    Button {
-                        Task {
-                            if connected || model.state == .connecting || model.needsConnectionCleanup { await model.disconnect() }
-                            else { await model.connect() }
-                        }
-                    } label: {
-                        HStack(spacing: 10) {
-                            if working { ProgressView().controlSize(.small) }
-                            else { Image(systemName: "power").font(.system(size: 15, weight: .medium)) }
-                            Text(actionTitle)
-                            Spacer(minLength: 20)
-                            Image(systemName: connected ? "stop.fill" : "arrow.right").font(.system(size: 12))
-                        }.frame(width: 180)
-                    }
-                    .buttonStyle(AppActionStyle(primary: true))
-                    .disabled(model.isManagingHelper || model.state == .stopping || (!model.canConnect && !connected && model.state != .connecting && !model.needsConnectionCleanup))
-                    .accessibilityLabel(actionTitle)
-                }
-                .padding(28)
-                .background(AppTheme.cloud, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
-                DashboardTrafficView(model: model, openActivity: openActivity)
-                VStack(alignment: .leading, spacing: 12) {
-                    if model.requiresHelperInstallation {
-                        Button(model.localized("前往设置安装增强模式"), action: openSettings)
-                            .buttonStyle(.link)
-                    }
-                    if model.hasUnsavedChanges {
-                        Text(model.localized("未保存"))
-                            .foregroundStyle(AppTheme.muted)
-                    }
-                    if model.needsProxyRecovery && model.state != .connected {
-                        Button(model.localized("恢复系统代理")) { Task { await model.recoverProxy() } }
-                            .buttonStyle(AppActionStyle())
-                            .disabled(model.state == .stopping || model.isManagingHelper)
-                    }
-                    if let error = model.errorMessage {
-                        Text(model.localized(error)).foregroundStyle(AppTheme.warning).textSelection(.enabled)
-                    }
-                }.font(AppTheme.caption)
+    @ViewBuilder private var attention: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if model.needsConnectionCleanup {
+                Button(model.localized("重试清理")) { Task { await model.disconnect() } }
+                    .buttonStyle(AppActionStyle()).disabled(model.isManagingHelper || model.isSwitchingServer)
+            } else if model.defaultServer == nil {
+                Button(model.localized("添加服务器"), action: editServer)
+                    .buttonStyle(AppActionStyle(primary: true)).disabled(model.editingDisabled)
+            } else if model.requiresHelperInstallation && model.enhancedCaptureEnabled && model.state == .idle {
+                Button(model.localized("设置增强模式"), action: openSettings)
+                    .buttonStyle(AppActionStyle(primary: true)).disabled(model.isManagingHelper)
+            } else if model.automaticCaptureEnabled && model.state == .idle {
+                Button(model.localized("重试启动")) { Task { await model.connect() } }
+                    .buttonStyle(AppActionStyle()).disabled(!model.canConnect || model.isSwitchingServer)
             }
-            .padding(AppTheme.pagePadding)
-            .frame(maxWidth: 760, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .top)
-        }
+            if model.needsProxyRecovery && model.state != .connected {
+                Button(model.localized("恢复系统代理")) { Task { await model.recoverProxy() } }
+                    .buttonStyle(AppActionStyle()).disabled(model.state == .stopping || model.isManagingHelper)
+            }
+            if let notice = model.policyNotice {
+                Text(notice).foregroundStyle(AppTheme.warning).textSelection(.enabled)
+            }
+            if let error = model.errorMessage {
+                Text(model.localized(error)).foregroundStyle(AppTheme.warning).textSelection(.enabled)
+            }
+
+        }.font(AppTheme.caption)
     }
 }

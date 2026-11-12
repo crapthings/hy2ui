@@ -9,6 +9,16 @@ public enum SystemProxyMode: String, Codable, CaseIterable, Sendable, Identifiab
     }
 }
 
+/// Persists a rule's enable switch and optional user comment independently of its matcher.
+public struct RulePreferences: Codable, Equatable, Sendable {
+    public var enabled = true
+    public var comment = ""
+    public init(enabled: Bool = true, comment: String = "") {
+        self.enabled = enabled
+        self.comment = comment
+    }
+}
+
 /// Stores proxy selection and bypass preferences independently from server credentials.
 public struct RoutingConfiguration: Codable, Equatable, Sendable {
     public var version = 1
@@ -18,9 +28,27 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
     public var bypassLocalNetworks = true
     public var directProcesses: [String] = []
     public var addressRules: [AddressRule] = []
+    public var finalAction: AddressRuleAction = .proxy
+    public var rulePreferences: [String: RulePreferences] = [:]
+    public var requestMode = RequestRoutingMode.rules
+    public var groups: [ServerGroup] = []
+    public var rules: [RoutingRule] = []
+    public var finalOutbound: OutboundTarget?
+
+    public func preferences(for id: String) -> RulePreferences { rulePreferences[id] ?? RulePreferences() }
+
+    /// Projects only enabled rules for runtime adapters while preserving the saved editor configuration.
+    public var activeRules: RoutingConfiguration {
+        var active = self
+        active.directProcesses.removeAll { !preferences(for: "process:" + $0).enabled }
+        active.addressRules.removeAll { !preferences(for: "address:" + $0.target).enabled }
+        active.directDomains.removeAll { !preferences(for: "address:" + ((try? Self.domain($0)) ?? $0)).enabled }
+        active.rulePreferences = [:]
+        return active
+    }
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case version, mode, pacURL, directDomains, bypassLocalNetworks, directProcesses, addressRules }
+    private enum CodingKeys: String, CodingKey { case version, mode, pacURL, directDomains, bypassLocalNetworks, directProcesses, addressRules, finalAction, rulePreferences, requestMode, groups, rules, finalOutbound }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decode(Int.self, forKey: .version)
@@ -30,11 +58,49 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
         bypassLocalNetworks = try values.decode(Bool.self, forKey: .bypassLocalNetworks)
         directProcesses = try values.decodeIfPresent([String].self, forKey: .directProcesses) ?? []
         addressRules = try values.decodeIfPresent([AddressRule].self, forKey: .addressRules) ?? []
+        finalAction = try values.decodeIfPresent(AddressRuleAction.self, forKey: .finalAction) ?? .proxy
+        rulePreferences = try values.decodeIfPresent([String: RulePreferences].self, forKey: .rulePreferences) ?? [:]
+        requestMode = try values.decodeIfPresent(RequestRoutingMode.self, forKey: .requestMode) ?? .rules
+        groups = try values.decodeIfPresent([ServerGroup].self, forKey: .groups) ?? []
+        finalOutbound = try values.decodeIfPresent(OutboundTarget.self, forKey: .finalOutbound)
+        if let stored = try values.decodeIfPresent([RoutingRule].self, forKey: .rules) { rules = stored }
+        else {
+            for process in directProcesses {
+                var rule = RoutingRule(); rule.kind = process.hasPrefix("/") ? .processPath : .processName; rule.value = process
+                let preferences = preferences(for: "process:" + process)
+                rule.enabled = preferences.enabled; rule.comment = preferences.comment; rules.append(rule)
+            }
+            var addresses = Set<String>()
+            for old in addressRules {
+                var rule = RoutingRule()
+                rule.kind = old.isDomain ? (old.domainMatch == .exact ? .domain : old.domainMatch == .keyword ? .domainKeyword : .domainSuffix)
+                    : (old.network?.isIPv6 == true ? .ipCIDR6 : .ipCIDR)
+                rule.value = old.target; rule.outbound = old.action == .direct ? .direct : .final
+                let preferences = preferences(for: "address:" + old.target)
+                rule.enabled = preferences.enabled; rule.comment = preferences.comment; rules.append(rule); addresses.insert(old.target)
+            }
+            for domain in directDomains {
+                let normalized = try Self.domain(domain)
+                guard addresses.insert(normalized).inserted else { continue }
+                var rule = RoutingRule(); rule.value = normalized
+                let preferences = preferences(for: "address:" + normalized)
+                rule.enabled = preferences.enabled; rule.comment = preferences.comment; rules.append(rule)
+            }
+            if finalAction == .direct { finalOutbound = .direct }
+        }
     }
 
     public func validate() throws {
+        guard groups.count <= 32, rules.count <= 512, Set(groups.map(\.id)).count == groups.count,
+              Set(rules.map(\.id)).count == rules.count, finalOutbound != .final else {
+            throw ConfigurationError.invalid("服务器组、规则或默认出口无效。")
+        }
+        for rule in rules { try rule.validate() }
         guard version == 1, directDomains.count <= 128, directProcesses.count <= 64, addressRules.count <= 128, Set(addressRules.map(\.target)).count == addressRules.count else {
             throw ConfigurationError.invalid("分流配置版本或规则数量无效。")
+        }
+        guard rulePreferences.count <= 320, rulePreferences.allSatisfy({ $0.key.utf8.count <= 2048 && $0.value.comment.utf8.count <= 2048 }) else {
+            throw ConfigurationError.invalid("规则备注过长。")
         }
         for domain in directDomains { _ = try Self.domain(domain) }
         for rule in addressRules { try rule.validate() }
@@ -50,10 +116,16 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
     }
 
     public func validateCapture(systemProxy: Bool, enhanced: Bool, backend: EnhancedBackend) throws {
+        guard !enhanced || backend == .localTun else {
+            throw ConfigurationError.invalid("官方 CLI 仅支持本地 TUN。")
+        }
         var active = self
-        if !systemProxy { active.mode = .manual }
+        if !systemProxy || finalAction == .direct { active.mode = .manual }
         try active.validate()
-        if systemProxy && enhanced && mode != .manual {
+        if (systemProxy || enhanced) && !active.activeRules.directProcesses.isEmpty {
+            throw ConfigurationError.invalid("官方 CLI 不支持进程分流。")
+        }
+        if systemProxy && enhanced && mode != .manual && finalAction != .direct {
             throw ConfigurationError.invalid("使用 PAC 时请关闭增强模式，避免直连流量再次被接管。")
         }
 

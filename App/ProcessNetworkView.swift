@@ -1,88 +1,148 @@
 import SwiftUI
 import AppKit
 
-/// Displays system-wide process network activity separately from Hy2 transport accounting.
+/// Presents continuously sampled processes as a selectable list with an adaptive detail pane.
 struct ProcessNetworkView: View {
     @Bindable var model: AppModel
     @State private var activity = ProcessNetworkModel()
     @State private var selection: Set<UUID> = []
-    @State private var search = ""
-    @State private var sortOrder = [KeyPathComparator(\ProcessNetworkModel.Row.displayName)]
+    var search = ""
+    @State private var sort = ProcessListSort()
     @State private var ruleNotice: String?
     @State private var ruleError = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            HStack {
-                Text(model.localized("网络活动")).font(AppTheme.pageTitle)
-                Spacer()
-                Button {
-                    activity.setPaused(!activity.isPaused)
-                } label: {
-                    Label(model.localized(activity.isPaused ? "继续更新" : "暂停更新"), systemImage: activity.isPaused ? "play" : "pause")
-                }.buttonStyle(AppActionStyle())
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 16) {
+                if let notice = activity.error ?? ruleNotice {
+                    Text(model.localized(notice)).font(AppTheme.caption).lineLimit(1)
+                        .foregroundStyle(activity.error != nil || ruleError ? AppTheme.warning : AppTheme.muted)
+                        .help(model.localized(notice))
+                }
+                if !selection.isEmpty && geometry.size.width >= 1000 {
+                    HStack(alignment: .top, spacing: AppTheme.gridSpacing) {
+                        processList.frame(minWidth: 640, maxWidth: .infinity)
+                        processDetails.frame(width: min(320, max(260, geometry.size.width * 0.25)))
+                    }
+                } else {
+                    processList
+                    if !selection.isEmpty { processDetails.frame(height: 230) }
+                }
+            }.padding(AppTheme.pagePadding)
+        }
+        .task { await activity.watch() }
+        .onChange(of: selection) { _, value in activity.retain(value) }
+        .onChange(of: filteredRows.map(\.id)) { _, ids in selection.formIntersection(Set(ids)) }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in activity.beginInteraction() }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in activity.endInteraction() }
+        .onDisappear { activity.endInteractions() }
+    }
+
+    private var processList: some View {
+        VStack(spacing: 0) {
+            ProcessListHeader(localized: model.localized, sort: sort, select: selectSort)
+            List(filteredRows, selection: $selection) { row in
+                ProcessListRow(row: row,
+                    selected: selection.contains(row.id), localized: model.localized)
+                    .tag(row.id)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
-            Text(model.localized("系统进程网络活动，包含直连、代理和本地连接。"))
-                .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
-            Text(model.localized(activity.error ?? ruleNotice ?? " "))
-                .font(AppTheme.caption).lineLimit(1)
-                .foregroundStyle(activity.error != nil || ruleError ? AppTheme.warning : AppTheme.muted)
-                .frame(height: 16, alignment: .leading)
-                .help(model.localized(activity.error ?? ruleNotice ?? ""))
-            HStack(spacing: 12) {
-                TextField(model.localized("搜索进程、PID 或路径"), text: $search)
-                    .textFieldStyle(FilledFieldStyle()).frame(maxWidth: 320)
-                Spacer()
-                Button(model.localized("重新排序"), systemImage: "arrow.up.arrow.down") { activity.sort(using: sortOrder) }
-                    .buttonStyle(AppActionStyle()).disabled(activity.rows.count < 2)
-                    .help(model.localized("点击列标题或重新排序，更新数据时保持顺序。"))
-            }
-            Table(filteredRows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn(model.localized("进程"), value: \.displayName) { row in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(row.displayName).lineLimit(1)
-                        Text("PID \(row.sample.pid)" + (row.isPresent ? "" : " · " + model.localized("暂无活动"))).font(AppTheme.caption).foregroundStyle(AppTheme.muted)
-                    }.foregroundStyle(row.isPresent ? AppTheme.ink : AppTheme.muted)
-                        .help(row.identity?.target.path ?? row.sample.name)
-                }.width(min: 140, ideal: 220)
-                TableColumn(model.localized("规则")) { row in
-                    if let target = row.identity?.target {
-                        let action = ProcessRoutingPolicy.action(for: target, in: model.routing.configuration)
-                        Text(action == .direct ? "DIRECT" : model.localized("默认"))
-                            .foregroundStyle(action == .direct ? AppTheme.connected : AppTheme.muted)
-                            .help(model.localized("下次连接生效"))
-                    } else { Text("—").foregroundStyle(AppTheme.muted) }
-                }.width(80)
-                TableColumn(model.localized("下载"), value: \.downloadRate) { row in Text(TrafficFormatting.rate(row.downloadRate)).monospacedDigit() }
-                TableColumn(model.localized("上传"), value: \.uploadRate) { row in Text(TrafficFormatting.rate(row.uploadRate)).monospacedDigit() }
-                TableColumn(model.localized("已接收"), value: \.received) { row in Text(TrafficFormatting.bytes(row.sample.received)).monospacedDigit() }
-                TableColumn(model.localized("已发送"), value: \.sent) { row in Text(TrafficFormatting.bytes(row.sample.sent)).monospacedDigit() }
-            }
+            .listStyle(.plain).scrollContentBackground(.hidden)
+            .contentMargins(0, for: .scrollContent)
             .overlay {
                 if filteredRows.isEmpty {
-                    Text(model.localized(search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? (activity.isPaused ? "已暂停更新" : "暂无网络活动") : "没有匹配的进程"))
-                        .font(AppTheme.body).foregroundStyle(AppTheme.muted).allowsHitTesting(false)
+                    AppEmptyState(symbol: .processes, title: model.localized(search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "暂无网络活动" : "没有匹配的进程"))
+                        .allowsHitTesting(false)
                 }
             }
             .transaction { $0.animation = nil }
             .contextMenu(forSelectionType: UUID.self) { ids in
                 let targets = filteredRows.filter { ids.contains($0.id) }
-                if !targets.isEmpty {
-                    processMenu(targets)
-                } else {
-                    Text(model.localized("请选择进程"))
-                }
+                if !targets.isEmpty { processMenu(targets) }
+                else { Text(model.localized("请选择进程")) }
             }
         }
-        .padding(AppTheme.pagePadding)
-        .task { await activity.watch() }
-        .onChange(of: selection) { _, value in activity.retain(value) }
-        .onChange(of: sortOrder) { _, value in activity.sort(using: value) }
-        .onChange(of: activity.rows.map(\.id)) { _, ids in selection.formIntersection(Set(ids)) }
-        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in activity.beginInteraction() }
-        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in activity.endInteraction() }
-        .onDisappear { activity.endInteractions() }
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+        .modifier(AppCardSurface())
+    }
+
+    private var selectedRows: [ProcessNetworkModel.Row] {
+        activity.rows.filter { selection.contains($0.id) }
+    }
+
+    private var processDetails: some View {
+        VStack(alignment: .leading, spacing: AppTheme.gridSpacing) {
+            HStack {
+                Text(model.localized("进程详情")).font(AppTheme.sectionTitle)
+                Spacer()
+                Button { selection.removeAll() } label: { AppIcon(symbol: .close, size: 14) }
+                    .buttonStyle(AppIconButtonStyle()).foregroundStyle(AppTheme.muted)
+                    .accessibilityLabel(model.localized("关闭详情")).help(model.localized("关闭详情"))
+            }.padding(.horizontal, 4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppTheme.gridSpacing) {
+                    if selectedRows.count == 1, let row = selectedRows.first {
+                        SectionCard {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text(row.displayName).font(AppTheme.cardTitle).textSelection(.enabled)
+                                HStack {
+                                    Text("PID").foregroundStyle(AppTheme.muted)
+                                    Spacer()
+                                    Text(String(row.sample.pid)).monospacedDigit().textSelection(.enabled)
+                                }
+                                HStack {
+                                    Text(model.localized("状态")).foregroundStyle(AppTheme.muted)
+                                    Spacer()
+                                    Text(model.localized(row.isPresent ? "运行中" : "暂无活动"))
+                                }
+                            }
+                        }
+                        SectionCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(model.localized("进程路径")).font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                                Text(row.identity?.target.path ?? model.localized("无法获取此进程的完整路径。"))
+                                    .font(AppTheme.caption).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        SectionCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack {
+                                    Text(model.localized("上传 / 下载")).font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                                    Spacer()
+                                    ProcessTransferValues(outgoing: TrafficFormatting.rate(row.uploadRate), incoming: TrafficFormatting.rate(row.downloadRate),
+                                                          outgoingTitle: model.localized("上传"), incomingTitle: model.localized("下载"))
+                                }
+                                HStack {
+                                    Text(model.localized("发送 / 接收")).font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                                    Spacer()
+                                    ProcessTransferValues(outgoing: TrafficFormatting.bytes(row.sent), incoming: TrafficFormatting.bytes(row.received),
+                                                          outgoingTitle: model.localized("已发送"), incomingTitle: model.localized("已接收"))
+                                }
+                            }
+                        }
+                    } else {
+                        SectionCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(model.localized("已选择进程"))
+                                DashboardValue(value: String(selectedRows.count))
+                            }
+                        }
+                    }
+                    Menu(model.localized("操作")) { processMenu(selectedRows) }
+                        .menuStyle(.button).buttonStyle(AppActionStyle())
+                        .disabled(selectedRows.isEmpty)
+                }.padding(1)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func selectSort(_ field: ProcessSortField) {
+        sort.select(field)
+        activity.sort(orderedIDs: sort.orderedIDs(in: activity.rows, configuration: model.routing.configuration))
     }
 
     private var filteredRows: [ProcessNetworkModel.Row] {
@@ -94,29 +154,8 @@ struct ProcessNetworkView: View {
         }
     }
 
-    private var supportsDirect: Bool {
-        model.profile.enhancedModeEnabled && model.profile.enhancedBackend == .localTun && !model.profile.systemProxyEnabled
-    }
-
     @ViewBuilder private func processMenu(_ rows: [ProcessNetworkModel.Row]) -> some View {
         let identities = rows.compactMap(\.identity)
-        if identities.count == rows.count {
-            ForEach(ProcessRoutingAction.allCases, id: \.self) { value in
-                let selected = identities.allSatisfy { ProcessRoutingPolicy.action(for: $0.target, in: model.routing.configuration) == value }
-                Button {
-                    setRules(value, identities: identities)
-                } label: {
-                    Label(model.localized(value.title), systemImage: selected ? "checkmark" : value == .direct ? "arrow.up.right" : "list.bullet")
-                }
-                .disabled(value == .direct && !supportsDirect)
-            }
-            Divider()
-            Text(model.localized("下次连接生效"))
-            if !supportsDirect { Text(model.localized("仅用于本地增强模式，请关闭系统代理。")) }
-        } else {
-            Text(model.localized("无法获取此进程的完整路径。"))
-        }
-        Divider()
         Button(model.localized("复制进程名")) { copy(rows.map(\.displayName).joined(separator: "\n")) }
         Button(model.localized("复制 PID")) { copy(rows.map { String($0.sample.pid) }.joined(separator: "\n")) }
         if identities.count == rows.count {
@@ -129,19 +168,4 @@ struct ProcessNetworkView: View {
         NSPasteboard.general.setString(value, forType: .string)
     }
 
-    private func setRules(_ action: ProcessRoutingAction, identities: [ProcessIdentity]) {
-        do {
-            guard !identities.isEmpty, identities.allSatisfy(\.isCurrent) else {
-                throw ConfigurationError.invalid("进程已退出或发生变化，请刷新后重试。")
-            }
-            try model.routing.update { configuration in
-                for identity in identities {
-                    try ProcessRoutingPolicy.set(action, for: identity.target, in: &configuration)
-                }
-            }
-            ruleNotice = "已保存，下次连接生效。"; ruleError = false
-        } catch {
-            ruleNotice = error.localizedDescription; ruleError = true
-        }
-    }
 }

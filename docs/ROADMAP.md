@@ -1,21 +1,26 @@
-# Routing roadmap
+# Remaining work
 
-The current release keeps System Proxy and Enhanced Mode independent. The Dashboard reports connection metrics, and Network Activity reports system process counters. Neither page changes routing behavior.
+Implemented behavior is documented in [the development guide](DEVELOPMENT.md). This list contains outstanding work, not a history of shipped features.
 
-## Local network bypass
+## Upstream CLI integration
 
-Add explicit IPv4 and IPv6 network exclusions, with a setting to bypass local networks. Cover private ranges, link-local addresses, local services, and the physical route to the server. Preserve existing route ownership and recovery rules. Test route plans without changing the developer's network.
+- Expose additional supported client configuration and CLI operations as needed.
+- Revisit client routing or telemetry only if upstream provides stable client interfaces; do not add source patches.
+- Handling physical-interface and resolver changes without requiring a reconnect.
 
-## Domain bypass
+## Lifecycle and distribution
 
-Add domain and suffix rules with a clear default action: Direct or Proxy. TUN packets normally contain an IP address rather than the original domain, so matching needs a reliable DNS-to-flow mapping. Account for cached results, shared IPs, IPv6, and encrypted DNS before promising domain-level behavior. Do not infer a domain from an IP alone.
+- Clean-machine installation, update, removal and recovery checks for the administrator service.
+- Developer ID / notarized distribution.
+- Safe detection and recovery of orphaned official CLI proxy children after a UI crash.
+- Launch at login. Remembered capture switches already restart the selected outbound when Hy2UI opens.
+- Automatic recovery of system proxies after an app crash, including services added during a session.
+- Long-duration real TUN throughput, memory pressure, sleep/wake and network-change validation initiated by the user.
 
-## Process bypass
+## Product
 
-Local Enhanced Mode now supports bounded process-path and executable-name rules through public SDK socket metadata. Unknown owners stay proxied. The `nettop` activity table remains observational. Future work includes stable application identities, better attribution coverage for protected processes, and interface-change handling.
+- Subscriptions and server import workflows.
+- A defined kill-switch policy and its recovery behavior.
+- Native universal builds and Intel validation.
 
-## Rule behavior
-
-Keep rule order visible and deterministic. Show the matched rule when diagnostics are requested. Changes during a connection need a defined apply or reconnect flow. Direct routing must not create a loop for the Hy2 server connection, and stopping must restore only settings owned by Hy2UI.
-
-Each stage needs tests for IPv4 and IPv6, reconnects, DNS changes, local access, cleanup, and conflicts with another network client. PAC now covers domain suffixes and local literal IPs for System Proxy. TUN domain rules and global local-network exclusions remain planned.
+Automated checks must not install helpers or change the host's proxy, DNS, TUN or routes. Real network changes remain user initiated.

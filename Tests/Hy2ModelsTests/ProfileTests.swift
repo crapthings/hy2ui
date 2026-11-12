@@ -53,3 +53,14 @@ import Testing
     #expect(object["server"] as? String == "[::1]:443")
     #expect((object["tls"] as? [String: String])?["sni"] == "vpn.example.com")
 }
+
+/// Keeps DIRECT startup independent of DNS and remote handshakes while preserving saved connection data.
+@Test func directEndpointDoesNotResolveUnusedServer() throws {
+    let input = Data(#"{"server":"unused-proxy.invalid:443","auth":"test","tls":{"sni":"unused-proxy.invalid"}}"#.utf8)
+    let result = try CoreEndpoint.resolve(configuration: input, finalDirect: true)
+    let core = try #require(JSONSerialization.jsonObject(with: result.configuration) as? [String: Any])
+    #expect(result.address == "127.0.0.1")
+    #expect(core["server"] as? String == "127.0.0.1:443")
+    #expect(core["lazy"] as? Bool == true)
+    #expect((core["tls"] as? [String: String])?["sni"] == "unused-proxy.invalid")
+}

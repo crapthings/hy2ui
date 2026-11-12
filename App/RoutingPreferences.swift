@@ -16,12 +16,9 @@ final class RoutingPreferences {
         guard let data = defaults.data(forKey: Self.key) else { return }
         do {
             let value = try JSONDecoder().decode(RoutingConfiguration.self, from: data)
-            try value.validate(); configuration = value
+            try value.validate()
+            configuration = value
         } catch { writable = false; self.error = "无法读取分流配置，原记录已保留。" }
-    }
-
-    func setProcessAction(_ action: ProcessRoutingAction, for target: ProcessRoutingTarget) throws {
-        try update { try ProcessRoutingPolicy.set(action, for: target, in: &$0) }
     }
 
     func update(_ change: (inout RoutingConfiguration) throws -> Void) throws {

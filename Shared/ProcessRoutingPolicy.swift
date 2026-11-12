@@ -23,7 +23,7 @@ public struct ProcessRoutingTarget: Equatable, Sendable {
 /// Applies process shortcuts to the same persisted patterns consumed by the existing local TUN rule matcher.
 public enum ProcessRoutingPolicy {
     public static func matchingPatterns(for target: ProcessRoutingTarget, in configuration: RoutingConfiguration) -> [String] {
-        configuration.directProcesses.filter { ProcessRulePattern.matches($0, path: target.path) }
+        configuration.activeRules.directProcesses.filter { ProcessRulePattern.matches($0, path: target.path) }
     }
 
     public static func action(for target: ProcessRoutingTarget, in configuration: RoutingConfiguration) -> ProcessRoutingAction {
@@ -34,13 +34,17 @@ public enum ProcessRoutingPolicy {
         var next = configuration
         switch action {
         case .direct:
-            if matchingPatterns(for: target, in: next).isEmpty { next.directProcesses.append(target.path) }
+            if matchingPatterns(for: target, in: next).isEmpty {
+                if !next.directProcesses.contains(target.path) { next.directProcesses.append(target.path) }
+                next.rulePreferences["process:" + target.path, default: RulePreferences()].enabled = true
+            }
         case .defaultRules:
             let shared = matchingPatterns(for: target, in: next).filter { $0 != target.path }
             guard shared.isEmpty else {
-                throw ConfigurationError.invalid("此进程受名称或应用规则覆盖，请在设置中修改该规则。")
+                throw ConfigurationError.invalid("此进程受名称或应用规则覆盖，请在规则页修改该规则。")
             }
             next.directProcesses.removeAll { $0 == target.path }
+            next.rulePreferences.removeValue(forKey: "process:" + target.path)
         }
         var check = next
         if check.mode == .externalPAC && check.pacURL.isEmpty { check.mode = .manual }

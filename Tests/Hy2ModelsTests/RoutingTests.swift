@@ -33,6 +33,58 @@ struct RoutingTests {
         #expect(context.objectForKeyedSubscript("FindProxyForURL")?.call(withArguments: ["http://localhost/", "localhost"])?.toString() == "PROXY 127.0.0.1:18080")
     }
 
+    @Test func standardDomainRulesAndCache() throws {
+        var config = RoutingConfiguration()
+        config.bypassLocalNetworks = false
+        config.addressRules = [
+            try AddressRule(target: "exact.example", action: .direct, domainMatch: .exact),
+            try AddressRule(target: "suffix.example", action: .direct),
+            try AddressRule(target: "keyword", action: .direct, domainMatch: .keyword),
+            try AddressRule(target: "disabled.example", action: .direct)
+        ]
+        config.rulePreferences["address:disabled.example"] = RulePreferences(enabled: false, comment: "Disabled")
+        let context = try #require(JSContext())
+        context.evaluateScript(try PACScript.generate(configuration: config, httpPort: 18080))
+        #expect(context.exception == nil)
+        let function = try #require(context.objectForKeyedSubscript("FindProxyForURL"))
+        for host in ["exact.example", "sub.suffix.example", "has-keyword.example"] {
+            #expect(function.call(withArguments: ["https://\(host)/", host])?.toString() == "DIRECT")
+        }
+        for host in ["sub.exact.example", "disabled.example"] {
+            #expect(function.call(withArguments: ["https://\(host)/", host])?.toString() == "PROXY 127.0.0.1:18080")
+        }
+        // A cached result avoids repeating matcher work for the same host.
+        context.evaluateScript("hy2ExactDomains['exact.example']='PROXY 127.0.0.1:18080'")
+        #expect(function.call(withArguments: ["https://exact.example/", "exact.example"])?.toString() == "DIRECT")
+        for index in 0..<600 {
+            _ = function.call(withArguments: ["https://host\(index).example/", "host\(index).example"])
+        }
+        #expect((context.objectForKeyedSubscript("hy2CacheSize")?.toInt32() ?? 0) <= 512)
+        #expect(context.exception == nil)
+        // Loading a new configuration clears all cached decisions.
+        context.evaluateScript(try PACScript.generate(configuration: config, httpPort: 18080))
+        #expect(context.objectForKeyedSubscript("hy2CacheSize")?.toInt32() == 0)
+    }
+
+    @Test func finalDirectPersistsAndOverridesFinalReferences() throws {
+        var config = RoutingConfiguration()
+        config.finalAction = .direct
+        config.bypassLocalNetworks = false
+        config.addressRules = [try AddressRule(target: "proxy.example", action: .proxy),
+                               try AddressRule(target: "203.0.113.0/24", action: .proxy)]
+        let encoded = try JSONEncoder().encode(config)
+        #expect(try JSONDecoder().decode(RoutingConfiguration.self, from: encoded) == config)
+        let context = try #require(JSContext())
+        context.evaluateScript(try PACScript.generate(configuration: config, httpPort: 18080))
+        #expect(context.exception == nil)
+        for host in ["proxy.example", "elsewhere.example", "203.0.113.9", "2001:db8::1"] {
+            #expect(context.objectForKeyedSubscript("FindProxyForURL")?.call(withArguments: ["https://\(host)/", host])?.toString() == "DIRECT")
+        }
+        config.finalAction = .proxy
+        context.evaluateScript(try PACScript.generate(configuration: config, httpPort: 18080))
+        #expect(context.objectForKeyedSubscript("FindProxyForURL")?.call(withArguments: ["https://elsewhere.example/", "elsewhere.example"])?.toString() == "PROXY 127.0.0.1:18080")
+    }
+
     @Test func rejectsInvalidPACAndCaptureCombinations() throws {
         var config = RoutingConfiguration(); config.mode = .externalPAC
         for url in ["file:///tmp/pac", "https://user:secret@example.com/pac", "https://example.com/#fragment", "", "javascript:evil()"] {
@@ -43,8 +95,8 @@ struct RoutingTests {
         #expect(throws: (any Error).self) { try config.validateCapture(systemProxy: true, enhanced: true, backend: .localTun) }
         try config.validateCapture(systemProxy: true, enhanced: false, backend: .localTun)
         config.directProcesses = ["curl"]
-        try config.validateCapture(systemProxy: true, enhanced: false, backend: .localTun)
-        try config.validateCapture(systemProxy: false, enhanced: true, backend: .localTun)
+        #expect(throws: (any Error).self) { try config.validateCapture(systemProxy: true, enhanced: false, backend: .localTun) }
+        #expect(throws: (any Error).self) { try config.validateCapture(systemProxy: false, enhanced: true, backend: .localTun) }
         for domain in ["https://example.com", "*.example.com", "a\";evil()", ".com", "a..com"] {
             #expect(throws: (any Error).self) { try RoutingConfiguration.domain(domain) }
         }

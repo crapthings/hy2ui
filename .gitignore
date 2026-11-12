@@ -14,3 +14,10 @@ Hy2UI.xcodeproj/
 *.key
 *.mobileprovision
 *.provisionprofile
+
+# macOS metadata and retired local migration/build remnants
+._*
+/Vendor/
+/Native/
+/Patches/
+/PacketTunnel/

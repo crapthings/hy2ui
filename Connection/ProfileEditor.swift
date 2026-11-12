@@ -45,15 +45,32 @@ public final class ProfileEditor {
         } catch { report(error) }
     }
 
+    public func edit(_ id: UUID) throws {
+        try load(id, selecting: false)
+    }
+
     public func select(_ id: UUID) throws {
-        guard profile.id != id else { return }
+        try load(id, selecting: true)
+    }
+
+    private func load(_ id: UUID, selecting: Bool) throws {
+        if profile.id == id {
+            if selecting {
+                if hasChanges { try save() }
+                try repository.select(id)
+                try library.select(id)
+            }
+            return
+        }
         if hasChanges { try save() }
         guard let next = library.profiles.first(where: { $0.id == id }) else {
             throw ConfigurationError.invalid("服务器已不存在。")
         }
         let secrets = try repository.credentials(for: next)
-        try repository.select(id)
-        try library.select(id)
+        if selecting {
+            try repository.select(id)
+            try library.select(id)
+        }
         profile = next
         credentials = secrets
         savedProfile = next
@@ -117,14 +134,14 @@ public final class ProfileEditor {
 
     public func save() throws {
         do {
-            try profile.validate()
+            try profile.validate(requireCapture: false)
             if !isNewServer, credentialsLoaded, savedProfile == profile, savedCredentials == credentials {
                 noticeIsError = false
                 notice = "已保存"
                 return
             }
             try repository.save(profile, credentials: credentials)
-            library.upsert(profile)
+            library.upsert(profile, selecting: false)
             savedProfile = profile
             savedCredentials = credentials
             credentialsLoaded = true

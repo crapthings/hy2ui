@@ -1,24 +1,35 @@
 import Foundation
 
-/// Generates a deterministic PAC script with explicit direct rules and no automatic direct fallback.
+/// Generates cached PAC decisions from enabled rules and the explicitly selected FINAL action.
 public enum PACScript {
-    public static func generate(configuration: RoutingConfiguration, httpPort: Int) throws -> String {
-        try configuration.validate()
+    public static func generate(configuration savedConfiguration: RoutingConfiguration, httpPort: Int) throws -> String {
+        var validated = savedConfiguration
+        if validated.finalAction == .direct { validated.mode = .generatedPAC }
+        try validated.validate()
+        let configuration = validated.activeRules
         guard (1024...65535).contains(httpPort) else { throw ConfigurationError.invalid("本地代理端口无效。") }
+        let finalRoute = configuration.finalAction == .direct ? "DIRECT" : "PROXY 127.0.0.1:\(httpPort)"
+        func route(_ action: AddressRuleAction) -> String { action == .direct ? "DIRECT" : finalRoute }
         let domains = try configuration.directDomains.map(RoutingConfiguration.domain)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(Dictionary(domains.map { ($0, true) }, uniquingKeysWith: { _, value in value }))
         let list = String(decoding: data, as: UTF8.self)
         let ipRules = configuration.addressRules.compactMap { rule -> [String: Any]? in
             guard let net = rule.network else { return nil }
-            return ["bytes": net.bytes.map { Int($0) }, "prefix": net.prefix, "action": rule.action == .direct ? "DIRECT" : "PROXY 127.0.0.1:\(httpPort)"]
+            return ["bytes": net.bytes.map { Int($0) }, "prefix": net.prefix, "action": route(rule.action)]
         }.sorted { ($0["prefix"] as! Int) > ($1["prefix"] as! Int) }
-        let domainRules = Dictionary(uniqueKeysWithValues: configuration.addressRules.filter(\.isDomain).map { ($0.target, $0.action == .direct ? "DIRECT" : "PROXY 127.0.0.1:\(httpPort)") })
+        let domainRules = Dictionary(uniqueKeysWithValues: configuration.addressRules.filter { $0.isDomain && $0.domainMatch == .suffix }.map { ($0.target, route($0.action)) })
+        let exactDomains = Dictionary(uniqueKeysWithValues: configuration.addressRules.filter { $0.isDomain && $0.domainMatch == .exact }.map { ($0.target, route($0.action)) })
+        let keywordDomains = configuration.addressRules.filter { $0.isDomain && $0.domainMatch == .keyword }.map {
+            ["value": $0.target, "action": route($0.action)]
+        }
         let networks = (LocalNetworkPolicy.ipv4 + LocalNetworkPolicy.ipv6).compactMap { try? IPNetwork($0) }.map { ["bytes": $0.bytes.map { Int($0) }, "prefix": $0.prefix] as [String: Any] }
         func json(_ object: Any) throws -> String { String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self) }
         return """
         var hy2DirectDomains = \(list);
         var hy2Domains = \(try json(domainRules));
+        var hy2ExactDomains = \(try json(exactDomains));
+        var hy2Keywords = \(try json(keywordDomains));
         var hy2Networks = \(try json(ipRules));
         var hy2Local = \(try json(networks));
         function hy2V4(host) {
@@ -43,7 +54,7 @@ public enum PACScript {
           if(!bytes || net.bytes.length!==bytes.length) return false;
           for(var i=0;i<bytes.length;i++) { var mask=(255<<Math.max(0,Math.min(8,8-(net.prefix-i*8))))&255; if(net.bytes[i] !== (bytes[i]&mask)) return false; } return true;
         }
-        function FindProxyForURL(url, host) {
+        function hy2Lookup(host) {
           host=host.toLowerCase(); if(host.charAt(0)==='[' && host.charAt(host.length-1)===']') host=host.slice(1,-1);
           if(host.charAt(host.length-1)==='.') host=host.slice(0,-1);
           var bytes=hy2IP(host), candidate=host;
@@ -57,13 +68,23 @@ public enum PACScript {
           if(bytes) {
             for(var i=0;i<hy2Networks.length;i++) if(hy2Contains(hy2Networks[i],bytes)) return hy2Networks[i].action;
           } else {
+            if(Object.prototype.hasOwnProperty.call(hy2ExactDomains,host)) return hy2ExactDomains[host];
+            for(var n=0;n<hy2Keywords.length;n++) if(host.indexOf(hy2Keywords[n].value)>=0) return hy2Keywords[n].action;
             while(candidate) {
               if(Object.prototype.hasOwnProperty.call(hy2Domains,candidate)) return hy2Domains[candidate];
               if(Object.prototype.hasOwnProperty.call(hy2DirectDomains,candidate)) return 'DIRECT';
               var dot=candidate.indexOf('.'); if(dot<0) break; candidate=candidate.slice(dot+1);
             }
           }
-          return 'PROXY 127.0.0.1:\(httpPort)';
+          return '\(finalRoute)';
+        }
+        var hy2Cache = Object.create(null), hy2CacheSize = 0;
+        function FindProxyForURL(url, host) {
+          host=host.toLowerCase();
+          if(Object.prototype.hasOwnProperty.call(hy2Cache,host)) return hy2Cache[host];
+          var action=hy2Lookup(host);
+          if(hy2CacheSize>=512) { hy2Cache=Object.create(null); hy2CacheSize=0; }
+          hy2Cache[host]=action; hy2CacheSize++; return action;
         }
         """
     }

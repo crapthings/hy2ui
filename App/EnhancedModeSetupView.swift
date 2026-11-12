@@ -10,9 +10,6 @@ struct EnhancedModeSetupView: View {
             Text(model.localized(ready ? "增强模式已就绪" : "增强模式"))
                 .font(AppTheme.pageTitle).foregroundStyle(AppTheme.ink)
                 .multilineTextAlignment(.center)
-            Text(model.localized("接管应用与命令行的 TCP / UDP 流量。安装需管理员授权。"))
-                .font(AppTheme.body).foregroundStyle(AppTheme.muted)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if model.isManagingHelper {
                 ProgressView().controlSize(.small)
             } else if !ready, model.helperInstaller.failed, let message = model.helperInstaller.message {

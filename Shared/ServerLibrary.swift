@@ -24,10 +24,10 @@ public struct ServerLibrary: Codable, Equatable, Sendable {
                       selectedID: values.decodeIfPresent(UUID.self, forKey: .selectedID))
     }
 
-    public mutating func upsert(_ profile: Profile) {
+    public mutating func upsert(_ profile: Profile, selecting: Bool = true) {
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
-        selectedID = profile.id
+        if selecting || selectedID == nil { selectedID = profile.id }
     }
 
     public mutating func select(_ id: UUID) throws {

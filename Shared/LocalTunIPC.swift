@@ -11,7 +11,7 @@ public enum LocalTunWire {
     public static let maxMessageBytes = 65_536
 }
 
-/// Carries only the server and network settings accepted by the privileged TUN worker.
+/// Carries bounded CLI TUN settings while retaining decodable legacy worker fields.
 public struct LocalTunConfiguration: Codable, Equatable, Sendable {
     public let host: String
     public let port: Int
@@ -23,10 +23,11 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
     public let directProcesses: [String]?
     public let bypassLocalNetworks: Bool?
     public let addressRules: [String]?
+    public let finalDirect: Bool?
 
     public init(host: String, port: Int, serverName: String = "", password: String,
                 obfuscationPassword: String = "", mtu: Int = 1400,
-                dns: [String] = ["1.1.1.1", "2606:4700:4700::1111"], directProcesses: [String]? = nil, bypassLocalNetworks: Bool? = nil, addressRules: [String]? = nil) {
+                dns: [String] = ["1.1.1.1", "2606:4700:4700::1111"], directProcesses: [String]? = nil, bypassLocalNetworks: Bool? = nil, addressRules: [String]? = nil, finalDirect: Bool? = nil) {
         self.host = host
         self.port = port
         self.serverName = serverName
@@ -37,6 +38,7 @@ public struct LocalTunConfiguration: Codable, Equatable, Sendable {
         self.directProcesses = directProcesses
         self.bypassLocalNetworks = bypassLocalNetworks
         self.addressRules = addressRules
+        self.finalDirect = finalDirect
     }
 
     public func validate() throws {
@@ -173,7 +175,7 @@ public enum LocalTunMessageCodec {
             throw LocalTunProtocolError.invalidMessage
         }
         if let configuration = dictionary["configuration"] as? [String: Any] {
-            let allowed: Set<String> = ["host", "port", "serverName", "password", "obfuscationPassword", "mtu", "dns", "directProcesses", "bypassLocalNetworks", "addressRules"]
+            let allowed: Set<String> = ["host", "port", "serverName", "password", "obfuscationPassword", "mtu", "dns", "directProcesses", "bypassLocalNetworks", "addressRules", "finalDirect"]
             guard Set(configuration.keys).isSubset(of: allowed) else { throw LocalTunProtocolError.invalidMessage }
         }
         let request = try JSONDecoder().decode(LocalTunRequest.self, from: data)

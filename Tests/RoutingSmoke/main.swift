@@ -19,9 +19,9 @@ import Foundation
                                     startMicroseconds: own.startMicroseconds, target: own.target)
         precondition(!stale.isCurrent)
         precondition(ProcessIdentity.read(pid: 0) == nil && ProcessIdentity.read(pid: UInt32.max) == nil)
-        try preferences.setProcessAction(.direct, for: own.target)
+        try preferences.update { try ProcessRoutingPolicy.set(.direct, for: own.target, in: &$0) }
         precondition(RoutingPreferences(defaults: defaults).configuration.directProcesses == [own.target.path])
-        try preferences.setProcessAction(.defaultRules, for: own.target)
+        try preferences.update { try ProcessRoutingPolicy.set(.defaultRules, for: own.target, in: &$0) }
         precondition(RoutingPreferences(defaults: defaults).configuration.directProcesses.isEmpty)
         let saved = preferences.configuration
         do {

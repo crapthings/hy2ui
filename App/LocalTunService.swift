@@ -186,7 +186,8 @@ private extension LocalTunConfiguration {
             serverName: tls?["sni"] as? String ?? profile.serverName, password: password,
             obfuscationPassword: salamander?["password"] as? String ?? "", mtu: profile.mtu, dns: profile.dns,
             directProcesses: core["desktopDirectProcesses"] as? [String],
-            bypassLocalNetworks: core["desktopBypassLocalNetworks"] as? Bool, addressRules: core["desktopAddressRules"] as? [String])
+            bypassLocalNetworks: core["desktopBypassLocalNetworks"] as? Bool, addressRules: core["desktopAddressRules"] as? [String],
+            finalDirect: try DesktopCoreConfiguration.finalDirect(in: data) ? true : nil)
         try payload.validate()
         return payload
     }

@@ -43,19 +43,3 @@ import Testing
     #expect(AppLanguage.preferred(in: preferences) == .english)
     #expect(preferences.string(forKey: "server-marker") == "keep-server")
 }
-
-/// Allows reopening the completed introduction without restoring automatic presentation on later launches.
-@Test @MainActor func completedIntroductionCanBeOpenedFromSettings() throws {
-    let suite = "hy2ui.onboarding-tests." + UUID().uuidString
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let introduction = EnhancedModeOnboarding(preferences: preferences)
-    introduction.consider(hasInstallation: true)
-    introduction.show()
-    #expect(introduction.isPresented)
-    let relaunched = EnhancedModeOnboarding(preferences: preferences)
-    relaunched.consider(hasInstallation: false)
-    #expect(!relaunched.isPresented)
-    introduction.finish()
-    #expect(!introduction.isPresented)
-}

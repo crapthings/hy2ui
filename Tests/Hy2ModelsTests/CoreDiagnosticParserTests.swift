@@ -86,3 +86,15 @@ import Testing
     parser.consume(Data("HY2UI_TCP_ERROR secret-target-and-password\n".utf8))
     #expect(parser.drain().isEmpty)
 }
+
+/// Allows a DIRECT worker to become ready from its listener without inventing a QUIC connection event.
+@Test func directReadinessDoesNotRequireProxyHandshake() {
+    let listener = Data("TUN proxy listening on interface utun100\n".utf8)
+    var direct = CoreDiagnosticParser(requiresConnection: false)
+    var proxy = CoreDiagnosticParser()
+    direct.consume(listener)
+    proxy.consume(listener)
+    #expect(direct.ready)
+    #expect(!proxy.ready)
+    #expect(direct.drain().isEmpty)
+}

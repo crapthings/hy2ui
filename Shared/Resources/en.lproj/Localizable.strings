@@ -4,7 +4,6 @@
 "Hysteria 服务器连接超时。" = "The Hysteria server connection timed out.";
 "MTU 应在 1280–1500 之间。" = "MTU must be between 1280 and 1500.";
 "MTU 无效。" = "Invalid MTU.";
-"Network Extension 需要开发者签名与系统扩展授权。" = "Network Extension requires developer signing and system extension approval.";
 "Network Extension（开发者签名）" = "Network Extension (developer signing)";
 "Rust 客户端启动失败，请查看日志。" = "The Rust client failed to start. Check the logs.";
 "Rust 客户端在启动过程中退出。" = "The Rust client exited during startup.";
@@ -26,25 +25,19 @@
 "VPN：%@" = "VPN: %@";
 "不允许此用户访问本地增强模式服务。" = "This user is not allowed to access the local service.";
 "传输安全" = "Transport Security";
-"你的网络，自由连接" = "Your network. Your way.";
 "使用 --allowed-uid 指定唯一允许连接的本地用户。" = "Use --allowed-uid to specify the only local user allowed to connect.";
 "例如：东京 · 主线路" = "For example: Tokyo · Primary";
 "保存服务器" = "Save Server";
-"保存设置" = "Save Settings";
-"先添加一个服务器，再调整连接设置。" = "Add a server before changing connection settings.";
 "删除服务器" = "Delete Server";
 "删除这个服务器？" = "Delete this server?";
-"刷新状态" = "Refresh";
 "卸载后台" = "Uninstall Service";
 "卸载增强模式后台？" = "Uninstall the background service?";
 "发现待恢复的系统代理，请先恢复设置。" = "System proxy settings need recovery. Restore them first.";
 "发现旧版后台" = "Older service detected";
-"取消连接" = "Cancel connection";
 "可选" = "Optional";
 "名称" = "Name";
 "后台卸载尚未完成，请重试。" = "Service removal is incomplete. Please retry.";
 "后台安装记录无效，请重新安装后台。" = "The service installation record is invalid. Reinstall the service.";
-"后台就绪" = "Service ready";
 "后台已卸载，节点配置和钥匙串凭据已保留。" = "Service removed. Servers and Keychain credentials have been kept.";
 "后台已安装" = "Service installed";
 "后台已安装给其他账户" = "Service belongs to another account";
@@ -54,9 +47,7 @@
 "后台随应用提供，安装与卸载均由 macOS 请求管理员授权；Hy2UI 不会读取管理员密码。" = "The service is bundled with the app. macOS requests administrator approval for installation and removal; Hy2UI never reads your administrator password.";
 "后台需要修复" = "Service needs repair";
 "启动失败：%@" = "Startup failed: %@";
-"在左侧添加你的第一个连接" = "Add your first server in the sidebar";
 "增强模式" = "Enhanced Mode";
-"增强模式 · TUN" = "Enhanced Mode · TUN";
 "增强模式后台" = "Background Service";
 "增强模式后台不可用。" = "The tunnel service is unavailable.";
 "增强模式启动失败，DNS 恢复尚未完成，请重试停止。" = "Enhanced Mode failed to start and DNS recovery is incomplete. Retry stopping.";
@@ -71,8 +62,6 @@
 "安装操作已结束，但后台校验尚未通过，请点击刷新或重试修复。" = "Installation finished, but service verification has not passed. Refresh or retry repair.";
 "客户端已在运行或正在停止。" = "The client is already running or stopping.";
 "客户端配置大小无效。" = "The client configuration size is invalid.";
-"密码仅存储在钥匙串" = "Passwords are stored only in Keychain";
-"将移除该服务器及对应的钥匙串密码，其他服务器不受影响。" = "This removes the server and its Keychain password. Other servers are unaffected.";
 "尚未安装后台" = "Service not installed";
 "已断开，网络设置已恢复。" = "Disconnected. Network settings have been restored.";
 "已有操作正在等待完成。" = "Another operation is pending.";
@@ -82,14 +71,10 @@
 "应用未包含 Rust 客户端，请先运行 Scripts/build-native.sh。" = "The Rust client is missing. Run Scripts/build-native.sh first.";
 "应用签名或内置后台程序校验失败，请重新构建或下载应用。" = "App signature or bundled service verification failed. Rebuild or download the app again.";
 "应用缺少 Bundle ID，请重新构建或下载应用。" = "The app has no Bundle ID. Rebuild or download the app again.";
-"当前服务器的高级选项，通常保持默认即可。" = "Advanced options for the current server. Defaults usually work well.";
 "当前连接将先断开，网络设置恢复后移除后台；服务器配置和钥匙串凭据会保留。" = "The connection will be stopped and network settings restored before removal. Servers and Keychain credentials will be kept.";
-"待配置" = "Not configured";
 "恢复系统代理" = "Restore system proxy";
 "我的服务器" = "My Server";
 "接管后端" = "Tunnel backend";
-"接管开关位于右上角；连接期间不能修改。" = "Traffic switches are in the upper-right corner and are locked while connected.";
-"断开连接" = "Disconnect";
 "新服务器" = "New Server";
 "无法写入本地增强模式事件。" = "Could not write the local service event.";
 "无法创建 VPN 会话。" = "Could not create a VPN session.";
@@ -114,16 +99,12 @@
 "日志" = "Logs";
 "显示主窗口" = "Show Main Window";
 "暂无连接记录。" = "No connection events yet.";
-"更新或修复后台" = "Update or Repair Service";
-"有未保存的修改，连接时会先保存。" = "Your changes will be saved before connecting.";
 "服务器" = "Servers";
 "服务器 DNS 解析失败：%@" = "Server DNS resolution failed: %@";
 "服务器 DNS 解析超时。" = "Server DNS resolution timed out.";
 "服务器列表或当前选择无效。" = "The server list or selected server is invalid.";
 "服务器地址无效。" = "The server address is invalid.";
 "服务器已不存在。" = "This server no longer exists.";
-"服务器已保存，密码存储在钥匙串。" = "Server saved. Passwords are stored in Keychain.";
-"服务器已移除。" = "Server removed.";
 "服务器端口应在 1–65535 之间。" = "The server port must be between 1 and 65535.";
 "服务器请填写域名或 IP，不包含协议和端口。" = "Enter a server hostname or IP without a scheme or port.";
 "未保存" = "Unsaved";
@@ -132,7 +113,6 @@
 "本地 TUN（管理员授权）" = "Local TUN (administrator approval)";
 "本地代理端口" = "Local proxy ports";
 "本地代理端口应不同，且在 1024–65535 之间。" = "Local proxy ports must differ and be between 1024 and 65535.";
-"本地后台接管 TCP / UDP 流量，首次使用需要管理员授权。" = "The local service routes TCP / UDP traffic. Administrator approval is required for installation.";
 "本地增强模式后台不可用，请在增强模式设置中安装或修复后台。" = "The local service is unavailable. Install or repair it from the background service panel.";
 "本地增强模式后台响应超时，请重试恢复。" = "The service response timed out. Retry recovery.";
 "本地增强模式后台操作失败，网络恢复状态尚未确认。" = "The service operation failed. Network recovery is unconfirmed.";
@@ -154,8 +134,6 @@
 "本地增强模式配置无效。" = "Invalid local service configuration.";
 "本地服务套接字路径不安全。" = "The local service socket path is unsafe.";
 "本地服务路径过长。" = "The local service path is too long.";
-"正在加载配置…" = "Loading configuration…";
-"正在处理后台…" = "Updating service…";
 "正在断开" = "Disconnecting";
 "正在检查后台…" = "Checking service…";
 "正在连接" = "Connecting";
@@ -167,7 +145,6 @@
 "添加服务器，选择流量接管方式。" = "Add a server and choose how to route traffic.";
 "特权服务文件的所有权或权限不安全。" = "Privileged service file ownership or permissions are unsafe.";
 "特权服务目录的所有权或权限不安全。" = "Privileged service directory ownership or permissions are unsafe.";
-"独立保存每个连接，随时切换。" = "Save each server separately and switch whenever you need.";
 "用于检查连接状态与恢复结果。" = "Connection events and network recovery details.";
 "界面语言" = "Interface language";
 "留空时使用服务器地址" = "Leave blank to use the server address";
@@ -187,11 +164,9 @@
 "编辑" = "Edit";
 "认证密码" = "Authentication password";
 "设置" = "Settings";
-"设置 macOS HTTP / SOCKS 代理；命令行工具可能不遵循系统代理。" = "Sets the macOS HTTP / SOCKS proxy. Command-line tools may ignore system proxy settings.";
 "语言 / Language" = "Language / 语言";
 "请从 Hy2UI 发起连接；此版本不支持系统自动启动。" = "Start the connection from Hy2UI. This version does not support automatic system startup.";
 "请以普通用户身份启动 Hy2UI，安装时再进行管理员授权。" = "Run Hy2UI as a standard user and approve administrator access when installing.";
-"请先在右上角安装增强模式后台" = "Install the background service in the upper-right corner first";
 "请先完成当前连接的网络恢复，再安装或卸载后台。" = "Finish restoring the current connection before installing or removing the service.";
 "请先恢复上次连接的系统代理。" = "Restore the previous system proxy settings first.";
 "请在系统设置中允许 Hy2UI 网络扩展。" = "Allow the Hy2UI network extension in System Settings.";
@@ -201,14 +176,9 @@
 "连接" = "Connect";
 "连接信息" = "Connection Details";
 "连接已取消。" = "Connection cancelled.";
-"连接已就绪" = "You're connected";
 "连接日志" = "Connection Logs";
 "连接服务器超时。" = "The server connection timed out.";
-"连接，自在一点。" = "Connect with ease.";
 "退出 Hy2UI" = "Quit Hy2UI";
-"选择一个服务器，剩下的交给 Hy2UI。" = "Choose a server. Hy2UI takes care of the rest.";
-"选择后立即生效，无需重新启动。" = "Changes take effect immediately. No restart needed.";
-"通过虚拟网卡接管 TCP / UDP 流量，命令行通常无需设置代理。" = "Routes TCP / UDP traffic through a virtual interface. Command-line tools usually need no proxy settings.";
 "配置版本 %@ 不受当前应用支持，请使用兼容的应用版本。" = "Configuration version %@ is unsupported. Use a compatible app version.";
 "重试清理" = "Retry cleanup";
 "钥匙串中的凭据无法读取。" = "Could not read the credentials from Keychain.";
@@ -226,7 +196,6 @@
 "后台安装权限校验失败，请修复后台。" = "Service installation permissions are invalid. Repair the service.";
 "后台操作已取消。" = "Service operation cancelled.";
 "后台操作失败，网络恢复状态尚未确认。" = "The service operation failed. Network recovery is unconfirmed.";
-"核心连接重新建立，已有连接可能需要重试。" = "The core connection was re-established. Existing connections may need to be retried.";
 "增强模式连接中断，网络恢复尚未确认，请重试清理。" = "Enhanced Mode was interrupted. Network recovery is unconfirmed. Retry cleanup.";
 "核心连接已建立，已有连接可能需要重试。" = "The core connection is established. Existing connections may need to be retried.";
 "核心连接已中断，将在新请求到来时尝试连接。" = "The core connection closed. A new request will trigger a connection attempt.";
@@ -237,20 +206,13 @@
 "核心报告 UDP 数据接收失败。" = "The core reported a UDP receive failure.";
 "已保存" = "Saved";
 "已删除" = "Deleted";
-"请先安装后台" = "Install the service first";
 "请先添加服务器" = "Add a server first";
 "删除服务器及其密码。" = "Delete this server and its password.";
 "断开并卸载后台，保留服务器和密码。" = "Disconnect and uninstall the service. Keep servers and passwords.";
-"启用增强模式？" = "Enable Enhanced Mode?";
-"接管所有应用的 TCP / UDP 流量，安装需要管理员授权。" = "Route TCP / UDP traffic from all apps. Installation requires administrator approval.";
 "跳过" = "Skip";
 "安装增强模式" = "Install Enhanced Mode";
-"前往设置安装增强模式" = "Set up Enhanced Mode in Settings";
-"查看增强模式引导" = "View Enhanced Mode Setup";
 "增强模式已就绪" = "Enhanced Mode is ready";
-"已安装，可在右上角开启。" = "Installed. Enable it in the upper-right corner.";
 "完成" = "Done";
-"接管应用与命令行的 TCP / UDP 流量。安装需管理员授权。" = "Route TCP / UDP traffic from apps and the terminal. Installation requires administrator approval.";
 "安装" = "Install";
 "处理中" = "Working";
 "检查中" = "Checking";
@@ -259,13 +221,10 @@
 "待更新" = "Update available";
 "其他账户" = "Other account";
 "需修复" = "Repair needed";
-"TUN 所需后台，更改需管理员授权。" = "Required for TUN. Changes need administrator approval.";
 "卸载" = "Uninstall";
 "更新" = "Update";
 "修复" = "Repair";
 "重新安装" = "Reinstall";
-
-"增强模式引导" = "Enhanced Mode Setup";
 
 "查看" = "View";
 
@@ -273,19 +232,11 @@
 
 "开启增强模式" = "Turn On Enhanced Mode";
 
-"设置向导" = "Setup Guide";
-
-"断开连接后可修改" = "Disconnect to change";
-
 "关闭系统代理" = "Turn Off System Proxy";
-
-"开启系统代理" = "Turn On System Proxy";
 
 "复制终端代理命令" = "Copy Terminal Proxy Command";
 
 "运行中" = "Running";
-
-"待连接" = "Ready to Connect";
 
 "已关闭" = "Off";
 
@@ -300,10 +251,6 @@
 "更多" = "More";
 
 "测试延迟" = "Test Latency";
-
-"TCP 延迟" = "TCP Latency";
-
-"TCP 延迟仅供参考，不代表 Hy2 连接质量。" = "TCP latency is a reference, not a measure of Hy2 connection quality.";
 
 "取消置顶" = "Unpin";
 
@@ -329,8 +276,6 @@
 
 "网络活动" = "Network Activity";
 
-"系统进程网络活动，包含直连、代理和本地连接。" = "System process activity, including direct, proxy, and local connections.";
-
 "进程" = "Process";
 
 "下载" = "Download";
@@ -351,52 +296,37 @@
 
 "此后端暂不提供连接统计。" = "Connection metrics are not available for this backend yet.";
 
-"查看进程网络活动" = "View Process Activity";
-
 "全局代理" = "Global proxy";
 "自动 PAC" = "Automatic PAC";
-"系统代理规则" = "System proxy rules";
 "代理方式" = "Proxy mode";
 "PAC 需指向当前本地代理端口。" = "The PAC script must use the current local proxy port.";
 "直连域名" = "Direct domains";
-"用逗号分隔，包含所填域名的子域名。" = "Separate domains with commas. Subdomains are included.";
-"本地域名和内网 IP 直连" = "Bypass local names and private IPs";
 "PAC 用于系统代理，请关闭增强模式后连接。" = "PAC applies to System Proxy. Turn off Enhanced Mode before connecting.";
-"直连应用" = "Direct applications";
 "仅用于本地增强模式，请关闭系统代理。" = "Requires local Enhanced Mode with System Proxy turned off.";
-"进程名称或路径，可使用 * 和 ?" = "Process name or path; * and ? are supported";
 "选择应用" = "Choose app";
 "无法读取分流配置，原记录已保留。" = "Could not read routing settings. The original record was preserved.";
 "无法启动本地 PAC 服务。" = "Could not start the local PAC server.";
 "分流配置版本或规则数量无效。" = "Invalid routing version or too many rules.";
 "PAC URL 请填写有效的 HTTP 或 HTTPS 地址。" = "Enter a valid HTTP or HTTPS PAC URL.";
 "使用 PAC 时请关闭增强模式，避免直连流量再次被接管。" = "Turn off Enhanced Mode when using PAC so direct traffic can bypass the tunnel.";
-"应用直连目前需要仅开启本地增强模式。" = "Application bypass requires local Enhanced Mode with System Proxy turned off.";
 "直连域名请逐项填写域名，不包含协议、路径或通配符。" = "Enter domain names without schemes, paths or wildcards.";
 "应用规则请填写进程名称或绝对路径，可使用 * 和 ?。" = "Enter a process name or absolute path. You can use * and ?.";
 "本地代理端口无效。" = "Invalid local proxy port.";
 "当前系统代理后端不支持 PAC。" = "The current system proxy backend does not support PAC.";
 "应用直连规则已命中。" = "An application bypass rule matched.";
-"无法识别的流量继续走代理，规则在下次连接时生效。" = "Unidentified traffic stays proxied. Changes apply on the next connection.";
 
 "直连 · DIRECT" = "Direct · DIRECT";
 "使用默认规则" = "Use default rules";
 "默认" = "Default";
 "规则" = "Rule";
-"请选择一个进程" = "Select one process";
 "下次连接生效" = "Applies on the next connection";
 "已保存，下次连接生效。" = "Saved. Applies on the next connection.";
 "无法获取此进程的完整路径。" = "The full process path is unavailable.";
 "进程已退出或发生变化，请刷新后重试。" = "The process has exited or changed. Refresh and try again.";
-"此进程受名称或应用规则覆盖，请在设置中修改该规则。" = "A name or app rule covers this process. Edit the shared rule in Settings.";
+"此进程受名称或应用规则覆盖，请在规则页修改该规则。" = "A name or app rule covers this process. Edit the shared rule in Rules.";
 
-"暂停更新" = "Pause updates";
-"继续更新" = "Resume updates";
 "搜索进程、PID 或路径" = "Search name, PID or path";
-"重新排序" = "Re-sort";
-"点击列标题或重新排序，更新数据时保持顺序。" = "Click a column heading or Re-sort to order rows. Sampling keeps their positions.";
 "暂无活动" = "No recent activity";
-"已暂停更新" = "Updates paused";
 "暂无网络活动" = "No network activity";
 "没有匹配的进程" = "No matching processes";
 "复制 PID" = "Copy PID";
@@ -413,7 +343,6 @@
 
 "应用规则" = "App Rules";
 "域名规则" = "Domain Rules";
-"仅用于自动 PAC，包含子域名；下次连接生效。" = "Applies to generated PAC, including subdomains. Changes apply on reconnect.";
 "代理设置" = "Proxy settings";
 "详细信息" = "Details";
 "复制" = "Copy";
@@ -460,20 +389,137 @@
 "查看范围" = "View Ranges";
 "本机、局域网设备与本地域名直接连接。" = "Connect directly to this Mac, local devices, and local domains.";
 "系统代理由外部 PAC 管理；此选项仍用于增强模式。" = "The external PAC controls System Proxy. This option still applies to Enhanced Mode.";
-"域名用于自动 PAC；IP 用于自动 PAC和本地增强模式。" = "Domains apply to generated PAC. IP rules apply to generated PAC and local Enhanced Mode.";
-"尚无地址规则" = "No address rules yet";
 "添加规则" = "Add Rule";
 "地址" = "Address";
-"连接方式" = "Connection";
 "匹配此域名及其子域名。" = "Matches this domain and its subdomains.";
-"匹配此 IP 或网段；较具体的 IP 规则优先。" = "Matches this IP or network. More specific IP rules take priority.";
-"输入域名、IPv4、IPv6 或 CIDR 网段。" = "Enter a domain, IPv4 address, IPv6 address, or CIDR network.";
-"本地网络绕过优先；IP 规则不解析域名，也不覆盖已有局域网或 VPN 路由。" = "Local network bypass takes priority. IP rules do not resolve domains or override existing local and VPN routes.";
 "由外部 PAC 管理" = "Managed by external PAC";
 "本地增强模式" = "Local Enhanced Mode";
 "仅自动 PAC · 当前未启用" = "Generated PAC only · Not enabled";
 "自动 PAC / 本地增强模式 · 当前未启用" = "Generated PAC / local Enhanced Mode · Not enabled";
-"应用直连需要仅开启本地增强模式；当前未启用。" = "Application bypass requires local Enhanced Mode with System Proxy off. It is not enabled.";
 "恢复默认" = "Use Default";
 "重新连接" = "Reconnect";
 "无法保留本地域名解析。" = "Could not preserve local DNS resolution.";
+
+// Application rule management.
+"按进程名称或绝对路径匹配，支持 * 和 ? 通配符。" = "Match a process name or absolute path. Wildcards * and ? are supported.";
+
+// Default proxy policies and service controls.
+"其余流量" = "Other traffic";
+"出口切换失败" = "Failed to switch outbound";
+"出口切换失败，已恢复原出口。" = "Failed to switch outbound. The previous outbound has been restored.";
+"出口切换失败，服务已停止。" = "Failed to switch outbound. The service has stopped.";
+"切换" = "Switch";
+"取消" = "Cancel";
+"接管方式" = "Traffic capture";
+"正在切换出口" = "Switching outbound";
+"策略" = "Policies";
+"规则类型" = "Rule type";
+"设置增强模式" = "Set up enhanced mode";
+"已选择" = "Selected";
+"正在启动" = "Starting";
+"正在停止" = "Stopping";
+
+// Remembered capture switches and the FINAL rule.
+"请先添加策略" = "Add a policy first";
+"FINAL 使用的策略" = "Policy used by FINAL";
+"开关状态会自动保存，下次启动 Hy2UI 时自动恢复。" = "Switches are saved and automatically restored the next time Hy2UI starts.";
+"重试启动" = "Retry startup";
+"管理策略" = "Manage policies";
+"用于 FINAL" = "Use for FINAL";
+"正在应用接管设置" = "Applying capture settings";
+"需要安装增强模式" = "Enhanced mode setup required";
+"待启动" = "Waiting to start";
+
+// Compact rule status labels.
+"需开启本地 TUN 并关闭系统代理" = "Enable local TUN and turn off the system proxy";
+
+// Dashboard card labels.
+"流量" = "Traffic";
+"今日" = "Today";
+"本月" = "Month";
+
+// Dashboard navigation and card actions.
+"搜索策略" = "Search policies";
+"清除搜索" = "Clear search";
+"无匹配策略" = "No matching policies";
+"网络趋势" = "Network trend";
+"当前速率" = "Current rate";
+"管理规则" = "Manage rules";
+
+"未启用" = "Inactive";
+
+// Consolidated settings and dashboard actions.
+"连接参数" = "Connection parameters";
+"代理配置" = "Proxy configuration";
+"后台服务" = "Background service";
+"查看日志" = "View logs";
+
+// Page subtitles and process master-detail presentation.
+"实时网络活动" = "Live network activity";
+"服务器与出口选择" = "Servers and outbound selection";
+"应用与地址分流" = "Application and address routing";
+"连接与后台服务" = "Connections and background service";
+"最近连接记录" = "Recent connection events";
+"服务器配置" = "Server configuration";
+"上传 / 下载" = "Upload / Download";
+"发送 / 接收" = "Sent / Received";
+"进程详情" = "Process details";
+"关闭详情" = "Close details";
+"进程路径" = "Process path";
+"已选择进程" = "Selected processes";
+"已退出" = "Exited";
+
+"升序" = "Ascending";
+
+"降序" = "Descending";
+
+"恢复默认顺序" = "Restore default order";
+
+// Unified rule list and editor.
+"进程规则" = "Process rule";
+"IP 规则" = "IP rule";
+"编辑规则" = "Edit rule";
+"匹配值" = "Value";
+"相同规则已存在。" = "This rule already exists.";
+"请输入有效的域名。" = "Enter a valid domain name.";
+"输入 IPv4、IPv6 或 CIDR 网段。" = "Enter an IPv4 address, IPv6 address, or CIDR range.";
+"删除规则" = "Delete rule";
+"搜索规则" = "Search rules";
+
+// Strict desktop configuration validation.
+"核心配置必须是 JSON 对象。" = "Core configuration must be a JSON object.";
+"核心配置的本地网络绕过设置无效。" = "The core configuration has an invalid local-network bypass setting.";
+"添加标准规则" = "Add Standard Rule";
+"标准规则" = "Standard Rule";
+"备注" = "Comment";
+"启用规则" = "Enable Rule";
+"当前后端不提供逐条规则命中计数。" = "The current backend does not expose per-rule hit counts.";
+"规则备注过长。" = "Rule comments are too long.";
+"进程名称或路径与规则类型不符。" = "The process name or path does not match the selected rule type.";
+"匹配进程名称，支持 * 和 ? 通配符。" = "Matches a process name; supports * and ? wildcards.";
+"匹配绝对路径，支持 * 和 ?；以 / 结尾时匹配应用目录。" = "Matches an absolute path; supports * and ?. End with / to match an application directory.";
+"仅匹配此域名。" = "Matches this exact domain only.";
+"匹配域名中包含的关键词。" = "Matches a keyword contained in the domain.";
+"输入 IPv4 地址或 CIDR 网段。" = "Enter an IPv4 address or CIDR prefix.";
+"输入 IPv6 地址或 CIDR 网段。" = "Enter an IPv6 address or CIDR prefix.";
+"没有匹配的规则" = "No matching rules";
+"进程规则仅支持 DIRECT。" = "Process rules support DIRECT only.";
+"命中" = "Used";
+
+"规则仅用于自动 PAC；不适用于全局代理或增强模式。" = "Rules apply only to generated PAC, not global proxy or enhanced mode.";
+
+"自动 PAC 地址规则" = "Address rules for generated PAC";
+
+"旧版进程分流与 DIRECT 默认出口已停用，原配置保留。" = "Legacy process routing and the DIRECT default are disabled; the saved configuration is preserved.";
+
+"官方 CLI 不支持进程分流或 DIRECT 默认出口。" = "The official CLI does not support process routing or a DIRECT default.";
+
+"官方 CLI 不支持进程分流。" = "The official CLI does not support process routing.";
+
+"官方 CLI 仅支持本地 TUN。" = "The official CLI supports local TUN only.";
+
+"绕过本机与局域网地址；本地域名通过系统代理例外与本地 DNS 处理。" = "Bypass local and LAN addresses; local names use system proxy exceptions and local DNS.";
+
+"应用未包含官方 CLI，请先运行 Scripts/prepare-cli.py。" = "The official CLI is missing. Prepare it with Scripts/prepare-cli.py.";
+
+"官方 CLI 仅支持本地 TUN，请在设置中选择本地增强模式。" = "The official CLI supports local TUN only. Enable local enhanced mode in Settings.";

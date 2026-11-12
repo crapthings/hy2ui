@@ -24,18 +24,25 @@ import Testing
     #expect(credentials == Credentials(password: "old-secret"))
 }
 
-/// Verifies current envelopes preserve every profile and credential value across round trips.
+/// Verifies current server-library envelopes preserve profiles and credentials across round trips.
 @Test func versionedSettingsRoundTrip() throws {
     var profile = Profile()
     profile.host = "vpn.example.com"
     profile.systemProxyEnabled = false
     profile.enhancedModeEnabled = true
-    let data = try PersistedConfiguration.encodeProfile(profile)
+    let library = try ServerLibrary(profiles: [profile], selectedID: profile.id)
+    let data = try PersistedConfiguration.encodeLibrary(library)
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(object["version"] as? Int == 1)
-    #expect(try PersistedConfiguration.decodeProfile(data) == profile)
+    #expect(try PersistedConfiguration.decodeLibrary(data) == library)
     let credentials = Credentials(password: "secret\nquoted\"value", obfuscationPassword: "obfs")
     #expect(try PersistedConfiguration.decodeCredentials(PersistedConfiguration.encodeCredentials(credentials)) == credentials)
+}
+
+/// Keeps the retired versioned single-profile format readable without exposing a writer for it.
+@Test func versionedSingleProfileRemainsReadable() throws {
+    let data = Data(#"{"version":1,"value":{"host":"legacy.example.com"}}"#.utf8)
+    #expect(try PersistedConfiguration.decodeProfile(data).host == "legacy.example.com")
 }
 
 /// Prevents a future envelope from being decoded or overwritten by the current application.

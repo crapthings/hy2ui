@@ -124,7 +124,8 @@ public final class ConnectionCoordinator {
             if profile.enhancedModeEnabled, tunnel == nil {
                 throw ConfigurationError.invalid("本地增强模式服务未安装，请在增强模式设置中安装后台。")
             }
-            let resolvedConfiguration = profile.systemProxyEnabled && profile.enhancedModeEnabled
+            let finalDirect = try DesktopCoreConfiguration.finalDirect(in: configuration)
+            let resolvedConfiguration = profile.enhancedModeEnabled && !finalDirect
                 ? try await StartupResolution().resolve(configuration, using: resolveProxyConfiguration) : configuration
             try Task.checkCancellation()
             if profile.systemProxyEnabled {

@@ -10,16 +10,16 @@ import Testing
     #expect(profile.enhancedBackend == .localTun)
 }
 
-/// Preserves independent capture choices and the explicit backend through persisted configuration.
+/// Disables legacy extension capture without silently opting into administrator TUN.
 @Test func independentCaptureSettingsRoundTrip() throws {
     var profile = Profile()
     profile.host = "example.com"
     profile.systemProxyEnabled = true
     profile.enhancedModeEnabled = true
     profile.enhancedBackend = .networkExtension
-    let decoded = try PersistedConfiguration.decodeProfile(PersistedConfiguration.encodeProfile(profile))
-    #expect(decoded == profile)
-    #expect(decoded.systemProxyEnabled && decoded.enhancedModeEnabled)
+    let decoded = try PersistedConfiguration.decodeProfile(JSONEncoder().encode(profile))
+    #expect(decoded.enhancedBackend == .localTun)
+    #expect(decoded.systemProxyEnabled && !decoded.enhancedModeEnabled)
 }
 
 /// Writes only independent switches so simultaneous capture never loses information in a legacy field.

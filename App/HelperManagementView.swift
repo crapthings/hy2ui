@@ -1,42 +1,40 @@
 import SwiftUI
 
-/// Aligns background help and maintenance actions beneath a title with a compact status badge.
+/// Groups background maintenance actions and failures beneath a compact installation status.
 struct HelperManagementView: View {
     @Bindable var model: AppModel
     @State private var confirmingRemoval = false
 
     private var statusColor: Color {
-        model.helperInstaller.status.isInstalled ? AppTheme.connected : AppTheme.destructive
-    }
-
-    private var statusTitle: String {
-        model.helperInstaller.status.isInstalled ? "已安装" : "未安装"
+        switch model.helperInstaller.status {
+        case .current: AppTheme.connected
+        case .checking, .notInstalled: AppTheme.muted
+        case .updateAvailable, .legacy, .otherUser, .damaged: AppTheme.warning
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.formSpacing) {
             HStack(alignment: .center) {
-                Text(model.localized("增强模式后台")).font(AppTheme.sectionTitle)
+                Label { Text(model.localized("后台服务")) } icon: { AppIcon(symbol: .helper, size: 17) }
+                    .font(AppTheme.sectionTitle)
                 Spacer()
-                Text(model.localized(statusTitle))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(statusColor)
-                    .help(model.localized(model.helperInstaller.status.title))
+                if model.helperInstaller.status == .checking || model.helperInstaller.isBusy {
+                    ProgressView().controlSize(.small)
+                }
+                Text(model.localized(model.helperInstaller.status.title))
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(statusColor)
             }
             SectionCard {
                 VStack(alignment: .leading, spacing: AppTheme.formSpacing) {
-                    HStack(alignment: .center, spacing: 24) {
-                        Text(model.localized("TUN 所需后台，更改需管理员授权。"))
-                            .font(AppTheme.body).foregroundStyle(AppTheme.muted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        HStack(spacing: 8) {
-                            Button(model.localized("卸载"), role: .destructive) { confirmingRemoval = true }
-                                .buttonStyle(AppActionStyle())
-                                .disabled(!model.initialized || model.isManagingHelper || !model.helperInstaller.canUninstall)
-                            Button(model.localized(model.helperInstaller.installButtonTitle)) { Task { await model.manageHelper(.install) } }
-                                .buttonStyle(AppActionStyle(primary: true))
-                                .disabled(!model.initialized || model.isManagingHelper || model.helperInstaller.status == .checking)
-                        }.fixedSize()
+                    HStack(spacing: 8) {
+                        Button(model.localized("卸载"), role: .destructive) { confirmingRemoval = true }
+                            .buttonStyle(AppActionStyle())
+                            .disabled(!model.initialized || model.isManagingHelper || !model.helperInstaller.canUninstall)
+                        Spacer(minLength: 0)
+                        Button(model.localized(model.helperInstaller.installButtonTitle)) { Task { await model.manageHelper(.install) } }
+                            .buttonStyle(AppActionStyle(primary: true))
+                            .disabled(!model.initialized || model.isManagingHelper || model.helperInstaller.status == .checking)
                     }
                     if model.helperInstaller.failed, let message = model.helperInstaller.message {
                         Text(model.localized(message)).font(AppTheme.caption)

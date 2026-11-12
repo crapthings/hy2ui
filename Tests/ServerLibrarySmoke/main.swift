@@ -12,7 +12,7 @@ private struct ServerLibrarySmoke {
         var legacy = Profile()
         legacy.host = "legacy.example.com"
         let legacyURL = directory.appendingPathComponent("profile.json")
-        try PersistedConfiguration.encodeProfile(legacy).write(to: legacyURL)
+        try JSONEncoder().encode(legacy).write(to: legacyURL)
         let migrated = try store.load()
         try require(migrated.selected == legacy, "migration changed the existing identity")
         try require(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("servers.json").path), "read-only migration wrote files")

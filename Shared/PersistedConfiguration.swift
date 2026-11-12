@@ -12,10 +12,6 @@ public enum PersistedConfiguration {
         try decode(data, as: ServerLibrary.self)
     }
 
-    public static func encodeProfile(_ profile: Profile) throws -> Data {
-        try encode(profile)
-    }
-
     public static func decodeProfile(_ data: Data) throws -> Profile {
         try decode(data, as: Profile.self)
     }

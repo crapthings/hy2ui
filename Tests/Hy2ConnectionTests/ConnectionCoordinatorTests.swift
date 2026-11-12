@@ -315,9 +315,9 @@ func enhancedOnlyDoesNotStartSystemProxy() async {
     await coordinator.disconnect()
 }
 
-/// Retains Network Extension as an explicit enhanced-mode backend instead of the self-use default.
+/// Rejects legacy extension capture before starting either tunnel service.
 @Test @MainActor
-func explicitNetworkExtensionBackendUsesItsOwnService() async {
+func legacyNetworkExtensionBackendIsRejected() async {
     let extensionService = FakeVPN()
     let local = FakeVPN()
     var profile = Profile()
@@ -326,8 +326,9 @@ func explicitNetworkExtensionBackendUsesItsOwnService() async {
     profile.enhancedBackend = .networkExtension
     let coordinator = ConnectionCoordinator(worker: FakeWorker(), proxy: FakeProxy(), vpn: extensionService, localTunnel: local)
     await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
-    #expect(extensionService.starts == 1)
+    #expect(extensionService.starts == 0)
     #expect(local.starts == 0)
+    #expect(coordinator.lastError != nil)
     await coordinator.disconnect()
 }
 

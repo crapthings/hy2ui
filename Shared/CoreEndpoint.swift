@@ -1,11 +1,11 @@
 import Foundation
 import Darwin
 
-/// Resolves a server before tunnel setup while preserving its TLS identity.
+/// Resolves a proxy endpoint before capture or supplies an unused numeric endpoint for DIRECT.
 public enum CoreEndpoint {
     /// Resolve before installing tunnel DNS. Reconnects reuse the address and retain TLS SNI.
     /// Call on a worker queue: getaddrinfo is a blocking system resolver.
-    public static func resolve(configuration: Data) throws -> (configuration: Data, address: String) {
+    public static func resolve(configuration: Data, finalDirect: Bool = false) throws -> (configuration: Data, address: String) {
         guard var object = try JSONSerialization.jsonObject(with: configuration) as? [String: Any],
               let authority = object["server"] as? String,
               let url = URLComponents(string: "https://" + authority),
@@ -13,6 +13,12 @@ public enum CoreEndpoint {
             throw ConfigurationError.invalid("服务器地址无效。")
         }
         let host = rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if finalDirect {
+            // No proxy connection is opened in DIRECT mode; avoid resolving an unused remote endpoint.
+            object["server"] = "127.0.0.1:\(port)"
+            object["lazy"] = true
+            return (try JSONSerialization.data(withJSONObject: object, options: .sortedKeys), "127.0.0.1")
+        }
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_DGRAM

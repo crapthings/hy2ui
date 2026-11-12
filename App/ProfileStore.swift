@@ -70,7 +70,7 @@ final class ProfileStore {
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             try Self.check(SecItemAdd(item as CFDictionary, nil))
         } else { try Self.check(status) }
-        library.upsert(profile)
+        library.upsert(profile, selecting: false)
         try write(library)
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-/// Owns one Rust worker and keeps credentials in an inherited pipe throughout its lifetime.
+/// Owns one official CLI process and keeps credentials in an inherited pipe throughout its lifetime.
 @MainActor
 final class CoreWorkerSession {
     enum Phase { case starting, running, stopping, exited }
@@ -12,6 +12,7 @@ final class CoreWorkerSession {
     var phase = Phase.starting
     var tail = ""
     var readiness = Set<String>()
+    var requiredReadiness: Set<String> = ["connection", "socks", "http"]
     var inputTask: Task<Void, Error>?
 
     func closePipes() {
@@ -46,9 +47,12 @@ final class CoreProcess {
         }
         let binary = binaryURL
         guard FileManager.default.isExecutableFile(atPath: binary.path) else {
-            throw ConfigurationError.invalid("应用未包含 Rust 客户端，请先运行 Scripts/build-native.sh。")
+            throw ConfigurationError.invalid("应用未包含官方 CLI，请先运行 Scripts/prepare-cli.py。")
         }
         let current = CoreWorkerSession()
+        if try DesktopCoreConfiguration.object(configuration)["lazy"] as? Bool == true {
+            current.requiredReadiness.remove("connection")
+        }
         configure(current, binary: binary, credentials: credentials)
         session = current
         do {
@@ -78,9 +82,9 @@ final class CoreProcess {
     }
 
     private func configure(_ current: CoreWorkerSession, binary: URL, credentials: Credentials) {
-        current.process.environment = ProcessInfo.processInfo.environment.merging(["HY2UI_TELEMETRY": "1"]) { _, value in value }
+        current.process.environment = ProcessInfo.processInfo.environment
         current.process.executableURL = binary
-        current.process.arguments = ["--config-stdin"]
+        current.process.arguments = ["client", "--config", "/dev/stdin", "--disable-update-check"]
         current.process.standardInput = current.input
         current.process.standardOutput = FileHandle.nullDevice
         current.process.standardError = current.output
@@ -103,7 +107,7 @@ final class CoreProcess {
             guard session === current, current.phase == .starting, current.process.isRunning else {
                 throw ConfigurationError.invalid("Rust 客户端启动失败，请查看日志。")
             }
-            if current.readiness.count == 3 { return }
+            if current.requiredReadiness.isSubset(of: current.readiness) { return }
             guard ContinuousClock.now < deadline else { throw ConfigurationError.invalid("连接服务器超时。") }
             try await Task.sleep(for: .milliseconds(50))
         }

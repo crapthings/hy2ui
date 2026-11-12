@@ -4,6 +4,7 @@ import Darwin
 /// Selects the implementation that owns enhanced-mode interfaces, DNS, and routing.
 public enum EnhancedBackend: String, Codable, CaseIterable, Sendable {
     case localTun, networkExtension
+    public static var allCases: [EnhancedBackend] { [.localTun] }
     public var title: String { self == .localTun ? "本地 TUN（管理员授权）" : "Network Extension（开发者签名）" }
 }
 
@@ -48,6 +49,11 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
             enhancedModeEnabled = enhancedEnabled ?? (legacyMode == .vpn)
         }
         enhancedBackend = try values.decodeIfPresent(EnhancedBackend.self, forKey: .enhancedBackend) ?? .localTun
+        // A legacy extension selection must not opt the user into administrator TUN capture.
+        if enhancedBackend == .networkExtension {
+            enhancedBackend = .localTun
+            enhancedModeEnabled = false
+        }
         httpPort = try values.decodeIfPresent(Int.self, forKey: .httpPort) ?? httpPort
         socksPort = try values.decodeIfPresent(Int.self, forKey: .socksPort) ?? socksPort
         mtu = try values.decodeIfPresent(Int.self, forKey: .mtu) ?? mtu
@@ -73,7 +79,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
 
     public var serverAddress: String { host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)" }
 
-    public func validate() throws {
+    public func validate(requireCapture: Bool = true) throws {
         guard !host.isEmpty, host == host.trimmingCharacters(in: .whitespacesAndNewlines),
               !host.contains(where: { $0.isWhitespace || "/@[]?#".contains($0) }),
               !host.contains(":") || Self.isIP(host, family: AF_INET6) else {
@@ -83,7 +89,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         guard !serverName.contains(where: { $0.isWhitespace || "/:@".contains($0) }) else {
             throw ConfigurationError.invalid("TLS 服务器名称格式无效。")
         }
-        guard systemProxyEnabled || enhancedModeEnabled else { throw ConfigurationError.invalid("请至少启用系统代理或增强模式。") }
+        guard !requireCapture || systemProxyEnabled || enhancedModeEnabled else { throw ConfigurationError.invalid("请至少启用系统代理或增强模式。") }
         if systemProxyEnabled {
             guard (1024...65535).contains(httpPort), (1024...65535).contains(socksPort), httpPort != socksPort else {
                 throw ConfigurationError.invalid("本地代理端口应不同，且在 1024–65535 之间。")

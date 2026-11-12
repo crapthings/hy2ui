@@ -21,23 +21,41 @@ final class AppModel {
     }
 
     private var session: ApplicationSession?
+    private let preferences: UserDefaults
+    private var serviceConfiguration: ServiceConfiguration?
+    private var serviceConfigurationLoaded = false
+    private(set) var isSwitchingServer = false
+    private(set) var isUpdatingCapture = false
+    private(set) var automaticCaptureEnabled: Bool
+    private static let automaticCaptureKey = "automaticCaptureEnabled.v1"
+    var enhancedCaptureEnabled: Bool { automaticCaptureEnabled && profile.enhancedModeEnabled }
+    var systemProxyCaptureEnabled: Bool { automaticCaptureEnabled && profile.systemProxyEnabled }
+    var canChangeCapture: Bool {
+        initialized && defaultServer != nil && !isManagingHelper && !isSwitchingServer
+            && (state == .idle || state == .connected || state == .connecting)
+    }
+    private(set) var policyNotice: String?
+    private static let serviceConfigurationKey = "serviceConfiguration.v1"
     private let makeSession: @MainActor () throws -> ApplicationSession
     private var initializationStarted = false
     private var draft = Profile()
     private var draftCredentials = Credentials()
     private var initializationError: String?
-    let helperInstaller = HelperInstallationManager()
-    let dashboard = DashboardModel()
+    let helperInstaller: HelperInstallationManager
     let routing: RoutingPreferences
     let enhancedSetup: EnhancedModeOnboarding
     private(set) var isManagingHelper = false
     private var connectedRouting: RoutingConfiguration?
-    var hasPendingRoutingChanges: Bool { state == .connected && connectedRouting != routing.configuration }
+    var hasPendingRoutingChanges: Bool { state == .connected && connectedRouting?.activeRules != routing.configuration.activeRules }
     private(set) var logs: [String] = []
 
     var profile: Profile {
-        get { session?.editor.profile ?? draft }
+        get {
+            let server = session?.editor.profile ?? draft
+            return serviceConfiguration?.applying(to: server) ?? server
+        }
         set {
+            serviceConfiguration = ServiceConfiguration(profile: newValue)
             if let session { session.editor.profile = newValue }
             else { draft = newValue }
         }
@@ -53,22 +71,41 @@ final class AppModel {
     var sortedServers: [Profile] { serverList.sorted(servers) }
 
     var servers: [Profile] { session?.editor.profiles ?? [] }
+    var defaultServer: Profile? {
+        guard let server = session?.editor.library.selected else { return nil }
+        return serviceConfiguration?.applying(to: server) ?? server
+    }
+    var isFinalDirect: Bool { routing.configuration.finalAction == .direct }
+    var finalPolicyTitle: String { isFinalDirect ? "DIRECT" : defaultServer?.name ?? localized("请先添加策略") }
+    var serviceTitle: String {
+        if isUpdatingCapture { return "正在应用接管设置" }
+        if isSwitchingServer { return "正在切换出口" }
+        switch state {
+        case .idle: return automaticCaptureEnabled ? (requiresHelperInstallation ? "需要安装增强模式" : "待启动") : "已关闭"
+        case .connecting: return "正在启动"
+        case .connected: return "运行中"
+        case .stopping: return "正在停止"
+        case .recoveryRequired: return "需要恢复"
+        }
+    }
+    var canChooseServer: Bool {
+        initialized && !isManagingHelper && !isSwitchingServer && (state == .idle || state == .connected)
+    }
     var hasServer: Bool { session?.editor.hasServer == true }
     var hasUnsavedChanges: Bool { session?.editor.hasChanges == true }
 
     var state: ConnectionState { session?.connection.state ?? .idle }
-    var editorNotice: String? { session?.editor.notice }
     var errorMessage: String? {
         initializationError ?? (session?.editor.noticeIsError == true ? session?.editor.notice : nil)
             ?? session?.connection.lastError
     }
     var needsProxyRecovery: Bool { session?.connection.needsProxyRecovery ?? false }
-    var initialized: Bool { session?.initialized ?? false }
-    var editingDisabled: Bool { !initialized || isManagingHelper || session?.connection.editingDisabled == true }
+    var initialized: Bool { session?.initialized == true && serviceConfigurationLoaded }
+    var editingDisabled: Bool { !initialized || isManagingHelper || isSwitchingServer || session?.connection.editingDisabled == true }
     var requiresHelperInstallation: Bool {
-        profile.enhancedModeEnabled && profile.enhancedBackend == .localTun && helperInstaller.status != .current
+        (defaultServer?.enhancedModeEnabled ?? false) && defaultServer?.enhancedBackend == .localTun && helperInstaller.status != .current
     }
-    var canConnect: Bool { initialized && hasServer && !isManagingHelper && !requiresHelperInstallation && session?.connection.canConnect == true }
+    var canConnect: Bool { initialized && defaultServer != nil && !isManagingHelper && !requiresHelperInstallation && session?.connection.canConnect == true }
     var systemProxyActive: Bool { session?.connection.systemProxyActive == true }
     var enhancedModeActive: Bool { session?.connection.enhancedModeActive == true }
     var activeCaptureDescription: String {
@@ -78,11 +115,15 @@ final class AppModel {
         return captures.joined(separator: " + ")
     }
     var needsConnectionCleanup: Bool { state == .recoveryRequired && session?.connection.hasOwnedResources == true }
-    var canQuit: Bool { !isManagingHelper && session?.connection.hasOwnedResources != true && session?.connection.state != .stopping }
+    var canQuit: Bool { !isManagingHelper && !isSwitchingServer && session?.connection.hasOwnedResources != true && session?.connection.state != .stopping }
 
     init(makeSession: @escaping @MainActor () throws -> ApplicationSession = ApplicationServices.live,
-         preferences: UserDefaults = .standard) {
+         preferences: UserDefaults = .standard,
+         helperInstaller: HelperInstallationManager? = nil) {
         self.makeSession = makeSession
+        self.preferences = preferences
+        automaticCaptureEnabled = preferences.bool(forKey: Self.automaticCaptureKey)
+        self.helperInstaller = helperInstaller ?? HelperInstallationManager()
         serverList = ServerListPreferences(defaults: preferences)
         routing = RoutingPreferences(defaults: preferences)
         enhancedSetup = EnhancedModeOnboarding(preferences: preferences)
@@ -96,23 +137,22 @@ final class AppModel {
             // Publish recovery services before loading data that may fail to decode or unlock.
             session = application
             application.connection.onLog = { [weak self] in self?.log($0) }
-            application.connection.onTelemetry = { [weak self] source, observation in
-                self?.dashboard.receive(observation, source: source)
-            }
-            dashboard.start()
             await application.initialize()
+            if let data = preferences.data(forKey: Self.serviceConfigurationKey) {
+                serviceConfiguration = try JSONDecoder().decode(ServiceConfiguration.self, from: data)
+            } else {
+                serviceConfiguration = ServiceConfiguration(profile: application.editor.profile)
+                try persistServiceConfiguration()
+            }
+            serviceConfigurationLoaded = true
             if let notice = application.editor.notice { log(notice) }
             await helperInstaller.refresh()
             enhancedSetup.consider(hasInstallation: helperInstaller.status.isInstalled)
+            if automaticCaptureEnabled { await connect() }
         } catch {
             initializationError = error.localizedDescription
             log(error.localizedDescription)
         }
-    }
-
-    func showEnhancedSetup() {
-        guard initialized, !isManagingHelper else { return }
-        enhancedSetup.show()
     }
 
     func skipEnhancedSetup() {
@@ -127,23 +167,120 @@ final class AppModel {
 
     func save() {
         guard let session, !editingDisabled else { return }
-        do { try session.editor.save() }
+        do {
+            session.editor.profile = profile
+            try session.editor.save()
+            try persistServiceConfiguration()
+        }
         catch { log(error.localizedDescription) }
     }
 
     func updateSetting(_ text: String, field: SettingsField, profileID: UUID) throws {
         guard let session, !editingDisabled, profile.id == profileID else { throw CancellationError() }
         let updated = try SettingsInput.applying(text, field: field, to: profile)
-        session.editor.profile = updated
-        do { try session.editor.save() }
+        profile = updated
+        do { try session.editor.save(); try persistServiceConfiguration() }
         catch { log(error.localizedDescription); throw error }
     }
 
     @discardableResult
     func selectServer(_ id: UUID) -> Bool {
         guard let session, !editingDisabled else { return false }
-        do { try session.editor.select(id); return true }
+        do { try session.editor.edit(id); return true }
         catch { session.editor.report(error); log(error.localizedDescription); return false }
+    }
+
+    func setCapture(enhanced: Bool, enabled: Bool) async {
+        guard canChangeCapture, let session, let current = defaultServer else { return }
+        var next = current
+        // Legacy capture preferences describe configuration, not a previous request to start automatically.
+        if !automaticCaptureEnabled {
+            next.enhancedModeEnabled = false
+            next.systemProxyEnabled = false
+        }
+        if enhanced { next.enhancedModeEnabled = enabled }
+        else { next.systemProxyEnabled = enabled }
+        let shouldRun = next.enhancedModeEnabled || next.systemProxyEnabled
+        do {
+            if session.editor.profile.id == current.id && session.editor.hasChanges { try session.editor.save() }
+            if shouldRun {
+                try routing.configuration.validateCapture(systemProxy: next.systemProxyEnabled,
+                    enhanced: next.enhancedModeEnabled, backend: next.enhancedBackend)
+                _ = try next.coreConfiguration(credentials: session.editor.credentialsForMeasurement(current.id))
+            }
+            isSwitchingServer = true
+            isUpdatingCapture = true
+            defer { isSwitchingServer = false; isUpdatingCapture = false }
+            serviceConfiguration = ServiceConfiguration(profile: next)
+            try persistServiceConfiguration()
+            automaticCaptureEnabled = shouldRun
+            preferences.set(shouldRun, forKey: Self.automaticCaptureKey)
+            if state == .connected || state == .connecting { await disconnect() }
+            guard session.connection.canConnect else { return }
+            if shouldRun { await connect() }
+        } catch { session.editor.report(error); log(error.localizedDescription) }
+    }
+
+    func useServer(_ id: UUID) async { await applyFinalPolicy(serverID: id) }
+
+
+    /// Applies a FINAL choice without losing its previous server or leaving a failed live switch selected.
+    private func applyFinalPolicy(serverID: UUID) async {
+        guard canChooseServer, let session else { return }
+        let previousID = session.editor.library.selectedID
+        let previousAction = routing.configuration.finalAction
+        let nextAction: AddressRuleAction = .proxy
+        guard previousAction != nextAction || serverID != previousID else { return }
+        let wasRunning = state == .connected
+        isSwitchingServer = true
+        policyNotice = nil
+        defer { isSwitchingServer = false }
+        do {
+            if session.editor.hasChanges { try session.editor.save() }
+            guard let saved = session.editor.library.profiles.first(where: { $0.id == serverID }) else {
+                throw ConfigurationError.invalid("服务器已不存在。")
+            }
+            let target = serviceConfiguration?.applying(to: saved) ?? saved
+            var nextRouting = routing.configuration
+            nextRouting.finalAction = nextAction
+            try nextRouting.validateCapture(systemProxy: target.systemProxyEnabled,
+                enhanced: target.enhancedModeEnabled, backend: target.enhancedBackend)
+            if wasRunning {
+                _ = try target.coreConfiguration(credentials: session.editor.credentialsForMeasurement(target.id))
+            } else { try target.validate(requireCapture: false) }
+            try routing.update { $0.finalAction = nextAction }
+            if wasRunning {
+                await disconnect()
+                guard session.connection.canConnect else {
+                    throw ConfigurationError.invalid(errorMessage ?? localized("出口切换失败"))
+                }
+            }
+            try session.editor.select(serverID)
+            if (wasRunning || automaticCaptureEnabled) && defaultServer != nil {
+                await connect()
+                if wasRunning && state != .connected {
+                    throw ConfigurationError.invalid(errorMessage ?? localized("出口切换失败"))
+                }
+            }
+        } catch {
+            let failure = error
+            do {
+                try routing.update { $0.finalAction = previousAction }
+                if let previousID, session.editor.library.selectedID != previousID { try session.editor.select(previousID) }
+                if wasRunning && session.connection.canConnect { await connect() }
+            } catch { log(error.localizedDescription) }
+            if wasRunning {
+                policyNotice = localized(state == .connected
+                    ? "出口切换失败，已恢复原出口。" : "出口切换失败，服务已停止。") + " " + localized(failure.localizedDescription)
+            }
+            if state != .connected || !wasRunning { session.editor.report(failure) }
+            log(failure.localizedDescription)
+        }
+    }
+
+    private func persistServiceConfiguration() throws {
+        guard let serviceConfiguration else { return }
+        preferences.set(try JSONEncoder().encode(serviceConfiguration), forKey: Self.serviceConfigurationKey)
     }
 
     @discardableResult
@@ -171,36 +308,29 @@ final class AppModel {
         catch { session.editor.report(error); log(error.localizedDescription); return false }
     }
 
-    func measureServer(_ server: Profile) async -> Int? {
-        guard initialized, let session else { return nil }
-        do {
-            let secrets = try session.editor.credentialsForMeasurement(server.id)
-            // Probe connection settings independently from capture choices and local listener ports.
-            var probe = server
-            probe.systemProxyEnabled = true; probe.enhancedModeEnabled = false
-            probe.httpPort = 18080; probe.socksPort = 11080
-            let configuration = try probe.coreConfiguration(credentials: secrets)
-            try Task.checkCancellation()
-            return await ServerLatencyProbe.measure(configuration: configuration, credentials: secrets)
-        } catch { return nil }
-    }
 
     func connect() async {
         guard canConnect, let session else { return }
         do {
+            if session.editor.profile.id == session.editor.library.selectedID && session.editor.hasChanges {
+                try session.editor.save()
+            }
+            try persistServiceConfiguration()
+            guard let profile = defaultServer else { return }
+            let credentials = try session.editor.credentialsForMeasurement(profile.id)
             let selectedRouting = routing.configuration
             try selectedRouting.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend)
             let base = try profile.coreConfiguration(credentials: credentials)
-            var core = try JSONSerialization.jsonObject(with: base) as? [String: Any] ?? [:]
+            var core = try DesktopCoreConfiguration.object(base)
             core["desktopBypassLocalNetworks"] = selectedRouting.bypassLocalNetworks
-            core["desktopAddressRules"] = selectedRouting.addressRules.filter { !$0.isDomain }.map { "\($0.action.rawValue),\($0.target)" }
-            if profile.enhancedModeEnabled && profile.enhancedBackend == .localTun && !profile.systemProxyEnabled { core["desktopDirectProcesses"] = selectedRouting.directProcesses }
             let configuration = try JSONSerialization.data(withJSONObject: core)
-            try session.editor.save()
             session.editor.clearNotice()
             let connectedID = profile.id
             await session.connection.connect(profile: profile, configuration: configuration, credentials: credentials, routing: selectedRouting)
-            if session.connection.state == .connected { connectedRouting = selectedRouting; serverList.recordUse(connectedID) }
+            if session.connection.state == .connected {
+                connectedRouting = selectedRouting
+                if selectedRouting.finalAction != .direct { serverList.recordUse(connectedID) }
+            }
         } catch {
             session.editor.report(error)
             log(error.localizedDescription)
@@ -208,7 +338,7 @@ final class AppModel {
     }
 
     func reconnect() async {
-        guard state == .connected else { return }
+        guard state == .connected, !isSwitchingServer else { return }
         do { try routing.configuration.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend) }
         catch { session?.editor.report(error); return }
         await disconnect()
@@ -219,7 +349,6 @@ final class AppModel {
         guard let session else { return }
         session.editor.clearNotice()
         await session.connection.disconnect()
-        dashboard.clearLive()
     }
 
     func recoverProxy() async {
@@ -229,7 +358,7 @@ final class AppModel {
     }
 
     func manageHelper(_ operation: HelperInstallationOperation) async {
-        guard initialized, !isManagingHelper else { return }
+        guard initialized, !isManagingHelper, !isSwitchingServer else { return }
         isManagingHelper = true
         defer { isManagingHelper = false }
         await disconnect()
@@ -237,7 +366,9 @@ final class AppModel {
             helperInstaller.report("请先完成当前连接的网络恢复，再安装或卸载后台。")
             return
         }
-        _ = await helperInstaller.perform(operation)
+        let succeeded = await helperInstaller.perform(operation)
+        isManagingHelper = false
+        if succeeded && operation == .install && automaticCaptureEnabled { await connect() }
     }
 
     func clearLogs() { logs.removeAll() }

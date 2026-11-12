@@ -19,7 +19,7 @@ def main():
             subprocess.run(['/usr/bin/codesign', '--force', '--sign', fingerprint,
                             '--keychain', keychain, '--timestamp=none', str(target)], check=True)
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-    print('App sealed with persistent self-signing identity; Network Extension requires Apple signing.')
+    print('App sealed with persistent self-signing identity; core uses the upstream CLI.')
 
 
 if __name__ == '__main__':

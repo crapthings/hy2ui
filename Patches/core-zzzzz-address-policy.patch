@@ -1,9 +1,0 @@
---- a/crates/hysteria/src/lib.rs
-+++ b/crates/hysteria/src/lib.rs
-@@ -64,3 +64,6 @@
- 
- /// Plans scoped physical exits for macOS direct process sockets.
- pub mod desktop_direct_routes;
-+
-+/// Compiles desktop address rules and local-network capture prefixes.
-+pub mod desktop_address_policy;

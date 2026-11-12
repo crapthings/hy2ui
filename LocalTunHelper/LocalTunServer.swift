@@ -70,7 +70,9 @@ final class LocalTunServer {
             let current = PrivilegedWorker()
             worker = current
             try current.start(configuration: configuration, connection: connection, termination: termination)
-            try dns.enable(servers: configuration.dns, bypassLocalNetworks: configuration.bypassLocalNetworks ?? true)
+            if configuration.finalDirect != true {
+                try dns.enable(servers: configuration.dns, bypassLocalNetworks: configuration.bypassLocalNetworks ?? true)
+            }
             guard current.isRunning else {
                 throw HelperFailure("TUN 客户端已退出。", failure: current.exitFailure())
             }

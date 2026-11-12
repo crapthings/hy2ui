@@ -30,55 +30,43 @@ final class ProcessNetworkModel {
     }
     private(set) var rows: [Row] = []
     private(set) var error: String?
-    private(set) var isPaused = false
     private var entries: [UUID: Entry] = [:]
     private var byPID: [UInt32: UUID] = [:]
     private var order: [UUID] = []
     private var retained: Set<UUID> = []
     private var interactionDepth = 0
     private var watchGeneration = UUID()
-    private var samplingGeneration = UUID()
     private var lastNow: TimeInterval = 0
 
     func watch() async {
         let generation = UUID(); watchGeneration = generation
         resetBaselines()
         while !Task.isCancelled && watchGeneration == generation {
-            if !isPaused {
-                let sampleToken = samplingGeneration
-                let result = await Task.detached(priority: .utility) { Self.snapshot() }.value
-                guard !Task.isCancelled, watchGeneration == generation else { return }
-                if !isPaused && sampleToken == samplingGeneration {
-                    switch result {
-                    case .success(let snapshot): apply(snapshot.samples, identities: snapshot.identities, now: ProcessInfo.processInfo.systemUptime)
-                    case .failure: error = "系统网络活动暂时不可用。"
-                    }
-                }
+            let result = await Task.detached(priority: .utility) { Self.snapshot() }.value
+            guard !Task.isCancelled, watchGeneration == generation else { return }
+            switch result {
+            case .success(let snapshot): apply(snapshot.samples, identities: snapshot.identities, now: ProcessInfo.processInfo.systemUptime)
+            case .failure: error = "系统网络活动暂时不可用。"
             }
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
     }
 
-    func setPaused(_ value: Bool) {
-        guard value != isPaused else { return }
-        isPaused = value; samplingGeneration = UUID()
-        resetBaselines()
-    }
     func retain(_ ids: Set<UUID>) { retained = ids; publish() }
     func beginInteraction() { interactionDepth += 1 }
     func endInteraction() { interactionDepth = max(0, interactionDepth - 1); publish() }
     func endInteractions() { interactionDepth = 0; publish() }
 
-    func sort(using comparators: [KeyPathComparator<Row>]) {
+    func sort(orderedIDs: [UUID]) {
         guard interactionDepth == 0 else { return }
-        let sorted = rows.sorted(using: comparators).map(\.id)
-        let visible = Set(sorted)
-        order = sorted + order.filter { !visible.contains($0) }
+        let visible = Set(rows.map(\.id))
+        var seen = Set<UUID>()
+        let sorted = orderedIDs.filter { visible.contains($0) && seen.insert($0).inserted }
+        order = sorted + order.filter { !seen.contains($0) }
         publish()
     }
 
     func apply(_ samples: [ProcessNetworkSample], identities: [UInt32: ProcessIdentity], now: TimeInterval) {
-        guard !isPaused else { return }
         lastNow = now
         for id in entries.keys { entries[id]?.isPresent = false }
         var added: [UUID] = []
@@ -118,7 +106,7 @@ final class ProcessNetworkModel {
         for id in entries.keys { entries[id]?.baselineTime = nil }
     }
     private func publish() {
-        if interactionDepth == 0 && !isPaused {
+        if interactionDepth == 0 {
             let expired = entries.filter { !$0.value.isPresent && lastNow - $0.value.lastSeen >= 10 && !retained.contains($0.key) }.map(\.key)
             for id in expired {
                 if let pid = entries[id]?.sample.pid, byPID[pid] == id { byPID.removeValue(forKey: pid) }

@@ -14,7 +14,7 @@ private final class LibraryRepository: ProfilePersisting {
     func load() throws -> ServerLibrary { library }
     func save(_ profile: Profile, credentials: Credentials) throws {
         if saveFails { throw ConfigurationError.invalid("Save failed") }
-        library.upsert(profile)
+        library.upsert(profile, selecting: false)
         secrets[profile.id] = credentials
         saves += 1
     }
@@ -33,6 +33,7 @@ private final class LibraryRepository: ProfilePersisting {
     var second = Profile(); second.host = "second.example.com"
     try repository.save(first, credentials: Credentials(password: "first"))
     try repository.save(second, credentials: Credentials(password: "second"))
+    try repository.select(second.id)
     let editor = ProfileEditor(repository: repository)
     editor.initialize()
     #expect(editor.profile.id == second.id)
@@ -51,6 +52,7 @@ private final class LibraryRepository: ProfilePersisting {
     var second = Profile(); second.host = "second.example.com"
     try repository.save(first, credentials: Credentials(password: "first"))
     try repository.save(second, credentials: Credentials(password: "second"))
+    try repository.select(second.id)
     let editor = ProfileEditor(repository: repository)
     editor.initialize()
     editor.profile.name = "Keep this edit"
@@ -91,6 +93,7 @@ private final class LibraryRepository: ProfilePersisting {
     var second = Profile(); second.host = "second.example.com"
     try repository.save(first, credentials: Credentials(password: "first"))
     try repository.save(second, credentials: Credentials(password: "second"))
+    try repository.select(second.id)
     let editor = ProfileEditor(repository: repository)
     editor.initialize()
     try editor.removeCurrent()
@@ -156,6 +159,7 @@ private final class LibraryRepository: ProfilePersisting {
     var second = Profile(); second.host = "second.example.com"
     try repository.save(first, credentials: Credentials(password: "first"))
     try repository.save(second, credentials: Credentials(password: "second"))
+    try repository.select(second.id)
     let editor = ProfileEditor(repository: repository)
     editor.initialize()
     editor.profile.name = "Unsaved draft"
@@ -176,6 +180,7 @@ private final class LibraryRepository: ProfilePersisting {
     var second = Profile(); second.host = "second.example.com"
     try repository.save(first, credentials: Credentials(password: "first"))
     try repository.save(second, credentials: Credentials(password: "second"))
+    try repository.select(second.id)
     let editor = ProfileEditor(repository: repository)
     editor.initialize()
     editor.profile.host = ""
@@ -184,4 +189,37 @@ private final class LibraryRepository: ProfilePersisting {
     #expect(secrets.password == "first")
     #expect(editor.profile.id == second.id && editor.profile.host.isEmpty)
     #expect(repository.library.selectedID == second.id && repository.saves == saves)
+}
+
+/// Keeps the default proxy stable while another server is opened, renamed and saved.
+@Test @MainActor func editingServerDoesNotChangeDefaultPolicy() throws {
+    let repository = LibraryRepository()
+    var first = Profile(); first.host = "first.example.com"
+    var second = Profile(); second.host = "second.example.com"
+    try repository.save(first, credentials: Credentials(password: "first"))
+    try repository.save(second, credentials: Credentials(password: "second"))
+    let editor = ProfileEditor(repository: repository)
+    editor.initialize()
+    try editor.edit(second.id)
+    #expect(editor.profile.id == second.id && editor.credentials.password == "second")
+    #expect(editor.library.selectedID == first.id && repository.library.selectedID == first.id)
+    editor.profile.name = "Renamed second"
+    try editor.save()
+    #expect(editor.library.selectedID == first.id && repository.library.selectedID == first.id)
+    try editor.select(second.id)
+    #expect(editor.library.selectedID == second.id && repository.library.selectedID == second.id)
+}
+
+/// Adds new server credentials without replacing an already selected default proxy.
+@Test @MainActor func addingServerPreservesDefaultPolicy() throws {
+    let repository = LibraryRepository()
+    var first = Profile(); first.host = "first.example.com"
+    try repository.save(first, credentials: Credentials(password: "first"))
+    let editor = ProfileEditor(repository: repository)
+    editor.initialize()
+    try editor.add()
+    editor.profile.host = "new.example.com"
+    try editor.save()
+    #expect(editor.library.profiles.count == 2)
+    #expect(editor.library.selectedID == first.id && repository.library.selectedID == first.id)
 }

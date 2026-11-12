@@ -11,7 +11,7 @@ struct CoreProcessSmoke {
         let configuration = try JSONSerialization.data(withJSONObject: ["auth": "test-secret\nquoted\"value"])
         let runningWorker = try writeWorker(at: directory.appendingPathComponent("running-worker"), body: """
         import json, sys, time
-        assert sys.argv[1:] == ['--config-stdin']
+        assert sys.argv[1:] == ['client', '--config', '/dev/stdin', '--disable-update-check']
         assert json.load(sys.stdin)['auth'] == 'test-secret\\nquoted"value'
         for line in ['connected to test', 'SOCKS5 proxy listening on test', 'HTTP proxy listening on test', 'HY2UI_METRICS 1 120 240 35000 1000000']:
             print(line, file=sys.stderr, flush=True)
@@ -32,6 +32,19 @@ struct CoreProcessSmoke {
         async let secondStop: Void = core.stop()
         _ = await (firstStop, secondStop)
         precondition(!core.isRunning, "concurrent stops must complete after worker exit")
+
+        let lazyWorker = try writeWorker(at: directory.appendingPathComponent("lazy-worker"), body: """
+        import json, sys, time
+        assert json.load(sys.stdin)['lazy'] is True
+        for line in ['SOCKS5 proxy listening on test', 'HTTP proxy listening on test']:
+            print(line, file=sys.stderr, flush=True)
+        time.sleep(30)
+        """)
+        let lazyCore = CoreProcess(binaryURL: lazyWorker)
+        let directConfiguration = try JSONSerialization.data(withJSONObject: ["lazy": true])
+        try await lazyCore.start(configuration: directConfiguration, credentials: Credentials())
+        precondition(lazyCore.isRunning, "DIRECT listeners must not wait for a remote handshake")
+        await lazyCore.stop()
 
         let exitingWorker = try writeWorker(at: directory.appendingPathComponent("exiting-worker"), body: """
         import os, sys

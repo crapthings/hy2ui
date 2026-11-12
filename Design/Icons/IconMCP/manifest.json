@@ -1,0 +1,134 @@
+{
+  "provider": "IconMCP",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 UI8",
+  "style": {
+    "style": "outline",
+    "size": 24,
+    "stroke": 1.5,
+    "radius": 2,
+    "color": "#000000"
+  },
+  "icons": [
+    {
+      "role": "overview",
+      "name": "grid",
+      "sha256": "0cf8df3da6cf2dd9a778eeb0abeafc2295d5284b0085e0e4924b8c6fcf1c6806",
+      "source": "https://iconmcp.com/?icon=grid"
+    },
+    {
+      "role": "processes",
+      "name": "terminal",
+      "sha256": "73c51e5b28300f562d037fa148ef795a217d7ba506a574ecdb9837f9804485ac",
+      "source": "https://iconmcp.com/?icon=terminal"
+    },
+    {
+      "role": "policies",
+      "name": "diverge",
+      "sha256": "c6e37d8975ca7d6239a722feefbc69f1a62071435bb31d5e45db7faccb35647b",
+      "source": "https://iconmcp.com/?icon=diverge"
+    },
+    {
+      "role": "rules",
+      "name": "list-checks",
+      "sha256": "94c9dff445f44272cf4f5ce169f3a4472d2be5f06887ecf0fee59a278df62c07",
+      "source": "https://iconmcp.com/?icon=list-checks"
+    },
+    {
+      "role": "logs",
+      "name": "file-text",
+      "sha256": "fe40cce1d0765035caa25d58a13efb3e597073228ea4e6b6d411a86f093083d9",
+      "source": "https://iconmcp.com/?icon=file-text"
+    },
+    {
+      "role": "settings",
+      "name": "settings",
+      "sha256": "bcef598ce475abec8e829884c63399c7fba39c47119a6b224b9725992702c360",
+      "source": "https://iconmcp.com/?icon=settings"
+    },
+    {
+      "role": "helper",
+      "name": "automation-gear",
+      "sha256": "e6e9b459ec513aa8271707fb6facc6804e316982ffb2795a8eaa3215415c02dd",
+      "source": "https://iconmcp.com/?icon=automation-gear"
+    },
+    {
+      "role": "server",
+      "name": "server",
+      "sha256": "2fb159056c623773a9b8a16b1c015d5e609a618e80fcdcccb61ad23ae29e22ef",
+      "source": "https://iconmcp.com/?icon=server"
+    },
+    {
+      "role": "capture",
+      "name": "network",
+      "sha256": "96f1801e38c26819f43fd28ebf59feec330a3eba3ad4a172793d3ee9739d70ca",
+      "source": "https://iconmcp.com/?icon=network"
+    },
+    {
+      "role": "upload",
+      "name": "upload",
+      "sha256": "2d4735a6ebe0c29b70c652eae0103c1aacf3d2c948a0238ac9fc10937af362a9",
+      "source": "https://iconmcp.com/?icon=upload"
+    },
+    {
+      "role": "download",
+      "name": "download",
+      "sha256": "b10f231220b78d8d41d24ae8347d295ec721a239c22818f282ecfcb23e37d5bd",
+      "source": "https://iconmcp.com/?icon=download"
+    },
+    {
+      "role": "today",
+      "name": "sun",
+      "sha256": "0942f655c11e69c76e9746884fb0a8e287908133c5d14bd1e13d9eabbe806e73",
+      "source": "https://iconmcp.com/?icon=sun"
+    },
+    {
+      "role": "month",
+      "name": "calendar",
+      "sha256": "c35c0655eba3200b1e44ce509d51412b7289ff47d965b9b9c02074b462e4abcb",
+      "source": "https://iconmcp.com/?icon=calendar"
+    },
+    {
+      "role": "address",
+      "name": "globe",
+      "sha256": "70e96753e2894ae106dcde08d8d3731f0d3b5036ad33afc9a16f20bbba2742d2",
+      "source": "https://iconmcp.com/?icon=globe"
+    },
+    {
+      "role": "application",
+      "name": "browser",
+      "sha256": "1aa9784e6dc91c98faf57543f4c53d24f183b76e3aa02ec5fc3aac5af2f9d5b1",
+      "source": "https://iconmcp.com/?icon=browser"
+    },
+    {
+      "role": "forward",
+      "name": "chevron-right",
+      "sha256": "1cb20b15401b97aa7a39ccc170404b30de27e7537f8cec2716b8a45473732924",
+      "source": "https://iconmcp.com/?icon=chevron-right"
+    },
+    {
+      "role": "search",
+      "name": "search",
+      "sha256": "91f95bafdd21be8e9565ec63b0bd93790d8e8f541fd577c5fdc10a16eec1146d",
+      "source": "https://iconmcp.com/?icon=search"
+    },
+    {
+      "role": "close",
+      "name": "close",
+      "sha256": "4095e41f42d31f54ce6898c2dc53cb755f42800dff0598e69297605f9c7f53a8",
+      "source": "https://iconmcp.com/?icon=close"
+    },
+    {
+      "role": "selected",
+      "name": "circle-check",
+      "sha256": "450d1db6a59e571a070028e1775deb68e65fa060eabd2f322015665bc36492e0",
+      "source": "https://iconmcp.com/?icon=circle-check"
+    },
+    {
+      "role": "disclosure",
+      "name": "chevron-down",
+      "sha256": "3ae6485347f9f9013704a3e970f075d7d2e8b540bc70f8b0a65301c94e3c0023",
+      "source": "https://iconmcp.com/?icon=chevron-down"
+    }
+  ]
+}

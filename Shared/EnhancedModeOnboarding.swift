@@ -16,8 +16,6 @@ public final class EnhancedModeOnboarding {
         else { isPresented = true }
     }
 
-    public func show() { isPresented = true }
-
     public func finish() {
         preferences.set(true, forKey: Self.completedKey)
         isPresented = false

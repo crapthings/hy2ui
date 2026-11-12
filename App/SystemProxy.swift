@@ -23,10 +23,12 @@ final class SystemProxy {
         guard !needsRecovery else { throw ConfigurationError.invalid("请先恢复上次连接的系统代理。") }
         var policy = RoutingConfiguration(); policy.mode = .generatedPAC
         policy.bypassLocalNetworks = routing.bypassLocalNetworks
+        policy.finalAction = routing.finalAction
         do {
             let url = try await pacServer.start(script: PACScript.generate(configuration: policy, httpPort: httpPort)).absoluteString
             try Task.checkCancellation()
-            var settings = SystemProxyConfiguration.manual(httpPort: httpPort, socksPort: socksPort, bypassLocalNetworks: routing.bypassLocalNetworks)
+            var settings = routing.finalAction == .direct ? SystemProxyConfiguration.pac(url: url)
+                : SystemProxyConfiguration.manual(httpPort: httpPort, socksPort: socksPort, bypassLocalNetworks: routing.bypassLocalNetworks)
             settings["ProxyAutoConfigEnable"] = 1; settings["ProxyAutoConfigURLString"] = url
             settings["ProxyAutoConfigJavaScript"] = ""
             try install(settings)
@@ -35,12 +37,14 @@ final class SystemProxy {
 
     func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws {
         guard !needsRecovery else { throw ConfigurationError.invalid("请先恢复上次连接的系统代理。") }
-        try configuration.validate()
+        var policy = configuration
+        if policy.finalAction == .direct { policy.mode = .generatedPAC }
+        try policy.validate()
         do {
             let url: String
-            if configuration.mode == .generatedPAC {
-                url = try await pacServer.start(script: PACScript.generate(configuration: configuration, httpPort: httpPort)).absoluteString
-            } else { url = configuration.pacURL }
+            if policy.mode == .generatedPAC {
+                url = try await pacServer.start(script: PACScript.generate(configuration: policy, httpPort: httpPort)).absoluteString
+            } else { url = policy.pacURL }
             try Task.checkCancellation()
             var settings = SystemProxyConfiguration.pac(url: url)
             settings["ExceptionsList"] = [String]()

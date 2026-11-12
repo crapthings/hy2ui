@@ -8,8 +8,9 @@ struct RoutingSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            FormGroup(title: model.localized("系统代理")) {
-                FieldRow(title: model.localized("代理方式")) {
+            FormGroup(title: model.localized("代理配置")) {
+                FieldRow(title: model.localized("代理方式"), help: configuration.mode == .manual ? nil
+                    : model.localized("PAC 用于系统代理，请关闭增强模式后连接。")) {
                     FormMenuPicker(title: model.localized("代理方式"), selection: Binding(
                         get: { configuration.mode }, set: { value in update { $0.mode = value } }
                     ), selectedTitle: model.localized(configuration.mode.title)) {
@@ -23,16 +24,12 @@ struct RoutingSettingsView: View {
                         }
                     }
                 }
-                if configuration.mode != .manual {
-                    Text(model.localized("PAC 用于系统代理，请关闭增强模式后连接。"))
-                        .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
-                }
             }
             FormGroup(title: model.localized("本地网络")) {
                 Toggle(model.localized("绕过本地网络"), isOn: Binding(
                     get: { configuration.bypassLocalNetworks }, set: { value in update { $0.bypassLocalNetworks = value } }
                 )).toggleStyle(.switch).controlSize(.small)
-                Text(model.localized(configuration.mode == .externalPAC && model.profile.systemProxyEnabled ? "系统代理由外部 PAC 管理；此选项仍用于增强模式。" : "本机、局域网设备与本地域名直接连接。"))
+                Text(model.localized(configuration.mode == .externalPAC && model.profile.systemProxyEnabled ? "系统代理由外部 PAC 管理；此选项仍用于增强模式。" : "绕过本机与局域网地址；本地域名通过系统代理例外与本地 DNS 处理。"))
                     .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
                 DisclosureGroup(model.localized("查看范围")) {
                     Text((LocalNetworkPolicy.ipv4 + LocalNetworkPolicy.ipv6 + LocalNetworkPolicy.domains).joined(separator: "\n"))

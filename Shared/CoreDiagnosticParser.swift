@@ -9,8 +9,9 @@ public struct CoreDiagnosticParser: Sendable {
     private var telemetry: [CoreTelemetry] = []
     private var connectionSeen = false
     private var tunnelSeen = false
-    public var ready: Bool { connectionSeen && tunnelSeen }
-    public init() {}
+    private let requiresConnection: Bool
+    public var ready: Bool { tunnelSeen && (!requiresConnection || connectionSeen) }
+    public init(requiresConnection: Bool = true) { self.requiresConnection = requiresConnection }
 
     public mutating func consume(_ bytes: Data) {
         for byte in bytes {

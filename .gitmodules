@@ -1,3 +1,0 @@
-[submodule "Vendor/hysteria-rust"]
-	path = Vendor/hysteria-rust
-	url = https://github.com/crapthings/hysteria-rust.git
