@@ -19,6 +19,11 @@ final class SystemProxy {
     var needsRecovery: Bool { FileManager.default.fileExists(atPath: journal.path) }
 
     func enable(httpPort: Int, socksPort: Int, routing: RoutingConfiguration) async throws {
+        if routing.mode == .native {
+            try Task.checkCancellation()
+            try install(SystemProxyConfiguration.manual(httpPort: httpPort, socksPort: socksPort, bypassLocalNetworks: false))
+            return
+        }
         // A local PAC handles simple names without the system flag that also bypasses public IPv6 literals.
         guard !needsRecovery else { throw ConfigurationError.invalid("请先恢复上次连接的系统代理。") }
         var policy = RoutingConfiguration(); policy.mode = .generatedPAC

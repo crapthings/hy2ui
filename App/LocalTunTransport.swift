@@ -100,6 +100,7 @@ final class LocalTunTransport: @unchecked Sendable {
                 guard let event = try? JSONDecoder().decode(LocalTunEvent.self, from: bytes) else {
                     throw LocalTunTransportError.invalidMessage
                 }
+                try event.interfaceSession?.validate()
                 if case .dropped = continuation.yield(event) { throw LocalTunTransportError.invalidMessage }
                 switch event.kind {
                 case .ready:

@@ -49,8 +49,14 @@ final class CoreProcess {
         guard FileManager.default.isExecutableFile(atPath: binary.path) else {
             throw ConfigurationError.invalid("应用未包含官方 CLI，请先运行 Scripts/prepare-cli.py。")
         }
+        let object = try DesktopCoreConfiguration.object(configuration)
+        if let routing = object["routing"] as? [String: Any] {
+            try await verifyCapabilities(routing: routing)
+        }
+        try Task.checkCancellation()
+        guard session == nil, stopTask == nil else { throw ConfigurationError.invalid("客户端正在启动。") }
         let current = CoreWorkerSession()
-        if try DesktopCoreConfiguration.object(configuration)["lazy"] as? Bool == true {
+        if object["lazy"] as? Bool == true || object["routing"] != nil {
             current.requiredReadiness.remove("connection")
         }
         configure(current, binary: binary, credentials: credentials)
@@ -77,6 +83,47 @@ final class CoreProcess {
             current.phase = .running
         } catch {
             await stop()
+            throw error
+        }
+    }
+
+    private func verifyCapabilities(routing: [String: Any]) async throws {
+        let probe = Process(), output = Pipe()
+        probe.executableURL = binaryURL
+        probe.arguments = ["capabilities", "--output", "json"]
+        probe.standardInput = FileHandle.nullDevice
+        probe.standardOutput = output
+        probe.standardError = FileHandle.nullDevice
+        try probe.run()
+        try output.fileHandleForWriting.close()
+        let reader = Task.detached { output.fileHandleForReading.readDataToEndOfFile() }
+        defer { try? output.fileHandleForReading.close() }
+        do {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while probe.isRunning {
+                try Task.checkCancellation()
+                guard ContinuousClock.now < deadline else { throw ConfigurationError.invalid("核心能力检查超时。") }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let data = await reader.value
+            guard probe.terminationStatus == 0, data.count <= 65_536,
+                  let report = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  report["schema_version"] as? Int == 1,
+                  let capabilities = report["routing"] as? [String: Any],
+                  capabilities["version"] as? Int == 1 else {
+                throw ConfigurationError.invalid("当前核心不支持原生分流，请更新核心。")
+            }
+            let rules = routing["rules"] as? [String] ?? []
+            if rules.contains(where: { $0.contains("(process-name:") || $0.contains("(process-path:") }) {
+                guard capabilities["process_matching"] as? Bool == true,
+                      let inbounds = capabilities["process_inbounds"] as? [String],
+                      inbounds.contains("http-tcp"), inbounds.contains("socks5-tcp") else {
+                    throw ConfigurationError.invalid("当前核心尚不支持进程规则，请使用包含进程分流能力的 dev 核心。")
+                }
+            }
+        } catch {
+            if probe.isRunning { kill(probe.processIdentifier, SIGKILL) }
+            _ = await reader.value
             throw error
         }
     }

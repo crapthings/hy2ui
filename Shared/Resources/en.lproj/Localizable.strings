@@ -523,3 +523,25 @@
 "应用未包含官方 CLI，请先运行 Scripts/prepare-cli.py。" = "The official CLI is missing. Prepare it with Scripts/prepare-cli.py.";
 
 "官方 CLI 仅支持本地 TUN，请在设置中选择本地增强模式。" = "The official CLI supports local TUN only. Enable local enhanced mode in Settings.";
+
+/* Capture conflict and explicit exit after recovery failure. */
+"网络恢复尚未确认" = "Network recovery is unconfirmed";
+"退出仅关闭界面，未恢复的代理或后台可能继续存在。恢复记录会保留，重新打开后可继续处理。" = "Quitting closes the interface only. Unrecovered proxy settings or background services may remain. Recovery records are kept so you can reopen the app and continue.";
+"返回并继续恢复" = "Return to recovery";
+"仍然退出" = "Quit anyway";
+"存在其他 VPN／增强模式接管，或出口路由不明确。请先关闭其他增强模式后重试。" = "Another VPN or enhanced mode is capturing traffic, or the outbound route is ambiguous. Disable the other enhanced mode and retry.";
+
+/* Managed native tunnel interface. */
+"接口释放尚未确认，恢复记录已保留。" = "Interface release is unconfirmed. Recovery records have been kept.";
+"开启增强模式时创建虚拟接口，停止后释放；无需单独安装网卡驱动。" = "Enhanced Mode creates a virtual interface and releases it when stopped. No separate network driver installation is needed.";
+"会话身份" = "Session identity";
+"重试释放与恢复" = "Retry release and recovery";
+"停止并移除接口" = "Stop and remove interface";
+"创建并连接" = "Create and connect";
+"释放状态待确认" = "Release unconfirmed";
+"接口身份不可用，请更新后台" = "Identity unavailable; update the backend";
+"创建中" = "Creating";
+"未创建" = "Not created";
+
+"未提供接口身份" = "Interface identity not reported";
+"先停止并释放虚拟接口，再卸载后台；保留服务器和密码。" = "Stop and release the virtual interface before uninstalling the backend. Servers and passwords are kept.";

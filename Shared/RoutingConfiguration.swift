@@ -2,10 +2,10 @@ import Foundation
 
 /// Selects fixed system proxies, a locally generated PAC script, or a user-supplied PAC URL.
 public enum SystemProxyMode: String, Codable, CaseIterable, Sendable, Identifiable {
-    case manual, generatedPAC, externalPAC
+    case native, manual, generatedPAC, externalPAC
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .manual: "全局代理"; case .generatedPAC: "自动 PAC"; case .externalPAC: "PAC URL" }
+        switch self { case .native: "核心分流"; case .manual: "全局代理"; case .generatedPAC: "自动 PAC"; case .externalPAC: "PAC URL" }
     }
 }
 
@@ -22,7 +22,7 @@ public struct RulePreferences: Codable, Equatable, Sendable {
 /// Stores proxy selection and bypass preferences independently from server credentials.
 public struct RoutingConfiguration: Codable, Equatable, Sendable {
     public var version = 1
-    public var mode: SystemProxyMode = .manual
+    public var mode: SystemProxyMode = .native
     public var pacURL = ""
     public var directDomains: [String] = []
     public var bypassLocalNetworks = true
@@ -75,7 +75,7 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
                 var rule = RoutingRule()
                 rule.kind = old.isDomain ? (old.domainMatch == .exact ? .domain : old.domainMatch == .keyword ? .domainKeyword : .domainSuffix)
                     : (old.network?.isIPv6 == true ? .ipCIDR6 : .ipCIDR)
-                rule.value = old.target; rule.outbound = old.action == .direct ? .direct : .final
+                rule.value = old.target; rule.outbound = old.action == .direct ? .direct : old.action == .reject ? .reject : .final
                 let preferences = preferences(for: "address:" + old.target)
                 rule.enabled = preferences.enabled; rule.comment = preferences.comment; rules.append(rule); addresses.insert(old.target)
             }
@@ -122,6 +122,15 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
         var active = self
         if !systemProxy || finalAction == .direct { active.mode = .manual }
         try active.validate()
+        if mode == .native {
+            if enhanced && (requestMode == .direct || (requestMode == .rules &&
+                (!active.activeRules.directProcesses.isEmpty || !active.activeRules.addressRules.isEmpty ||
+                 !active.activeRules.directDomains.isEmpty || finalAction != .proxy))) {
+                throw ConfigurationError.invalid("macOS 增强模式尚不支持核心分流；请关闭增强模式，使用系统代理测试规则。")
+            }
+            if systemProxy { _ = try NativeClientRouting.object(for: self) }
+            return
+        }
         if (systemProxy || enhanced) && !active.activeRules.directProcesses.isEmpty {
             throw ConfigurationError.invalid("官方 CLI 不支持进程分流。")
         }

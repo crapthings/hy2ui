@@ -39,7 +39,7 @@ struct Hy2UIApp: App {
     }
 }
 
-/// Defers application termination until owned connection resources have been released.
+/// Attempts cleanup and lets the user explicitly exit while preserving unresolved recovery records.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
@@ -51,8 +51,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         terminationPending = true
         Task {
             await model.disconnect()
-            // If restoration failed, keep the UI available so the user can retry.
-            let canQuit = model.canQuit
+            var canQuit = model.canQuit
+            if !canQuit {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = model.localized("网络恢复尚未确认")
+                alert.informativeText = model.localized("退出仅关闭界面，未恢复的代理或后台可能继续存在。恢复记录会保留，重新打开后可继续处理。")
+                alert.addButton(withTitle: model.localized("返回并继续恢复"))
+                alert.addButton(withTitle: model.localized("仍然退出"))
+                canQuit = alert.runModal() == .alertSecondButtonReturn
+            }
             terminationPending = false
             NSApp.reply(toApplicationShouldTerminate: canQuit)
         }

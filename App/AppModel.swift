@@ -15,7 +15,10 @@ final class AppModel {
 
     func localizedLog(_ value: String, detailed: Bool = true) -> String {
         guard let separator = value.range(of: "  ") else { return localized(value) }
-        let body = String(value[separator.upperBound...])
+        var body = String(value[separator.upperBound...])
+        if !detailed, let metadata = body.range(of: " [code=") {
+            body = String(body[..<metadata.lowerBound])
+        }
         let rendered = CoreFlowDiagnostic.fromLogMessage(body).map { $0.render(detailed: detailed, localized: localized) } ?? localized(body)
         return String(value[..<separator.upperBound]) + rendered
     }
@@ -107,6 +110,7 @@ final class AppModel {
     }
     var canConnect: Bool { initialized && defaultServer != nil && !isManagingHelper && !requiresHelperInstallation && session?.connection.canConnect == true }
     var systemProxyActive: Bool { session?.connection.systemProxyActive == true }
+    var interfaceSession: LocalTunInterfaceSession? { session?.connection.interfaceSession }
     var enhancedModeActive: Bool { session?.connection.enhancedModeActive == true }
     var activeCaptureDescription: String {
         var captures: [String] = []
@@ -318,7 +322,8 @@ final class AppModel {
             try persistServiceConfiguration()
             guard let profile = defaultServer else { return }
             let credentials = try session.editor.credentialsForMeasurement(profile.id)
-            let selectedRouting = routing.configuration
+            var selectedRouting = routing.configuration
+            selectedRouting.mode = .native
             try selectedRouting.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend)
             let base = try profile.coreConfiguration(credentials: credentials)
             var core = try DesktopCoreConfiguration.object(base)

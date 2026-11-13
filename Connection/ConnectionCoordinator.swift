@@ -28,6 +28,7 @@ public final class ConnectionCoordinator {
 
     public var needsProxyRecovery: Bool { proxy.needsRecovery }
     public var systemProxyActive: Bool { workerOwned && needsProxyRecovery }
+    public var interfaceSession: LocalTunInterfaceSession? { (localTunnel as? any TunnelSessionProviding)?.interfaceSession }
     public var enhancedModeActive: Bool { tunnelOwned && tunnelState == .connected }
     public var hasOwnedResources: Bool { workerOwned || tunnelOwned || needsProxyRecovery }
     public var editingDisabled: Bool { state != .idle || hasOwnedResources }
@@ -130,10 +131,13 @@ public final class ConnectionCoordinator {
             try Task.checkCancellation()
             if profile.systemProxyEnabled {
                 workerOwned = true
-                try await worker.start(configuration: DesktopCoreConfiguration.coreOnly(resolvedConfiguration), credentials: credentials)
+                let workerConfiguration = routing.mode == .native
+                    ? try NativeClientRouting.applying(to: resolvedConfiguration, routing: routing)
+                    : try DesktopCoreConfiguration.coreOnly(resolvedConfiguration)
+                try await worker.start(configuration: workerConfiguration, credentials: credentials)
                 try ensureCurrentStartup(token)
                 guard worker.isRunning else { throw ConfigurationError.invalid("Rust 客户端已停止，未启用系统代理。") }
-                if routing.mode == .manual {
+                if routing.mode == .manual || routing.mode == .native {
                     try await proxy.enable(httpPort: profile.httpPort, socksPort: profile.socksPort, routing: routing)
                     try ensureCurrentStartup(token)
                 }

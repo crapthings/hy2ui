@@ -3,24 +3,32 @@ import Darwin
 
 /// Supervises the installed official TUN CLI and tracks readiness without forwarding raw logs.
 final class PrivilegedWorker {
+    /// Uses clap-compatible boolean text while keeping the privileged environment bounded.
+    static let launchEnvironment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/var/root", "HYSTERIA_DISABLE_UPDATE_CHECK": "true"]
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
     private let lock = NSLock()
     private var diagnostics = CoreDiagnosticParser()
     private var outputClosed = false
+    private(set) var interfaceSession: LocalTunInterfaceSession?
     var isRunning: Bool { process.isRunning }
 
     func start(configuration: LocalTunConfiguration, connection: HelperSocket, termination: HelperTermination) throws {
         try TrustedInstallation.validate()
         try configuration.validate()
-        let data = try CLITunConfiguration.make(configuration)
+        let features = try PrivilegedCoreCommand.timed("探测核心能力", connection: connection) { try PrivilegedCoreCommand.features() }
+        let journal = features.journal ? LocalTunWire.routeJournalPath : nil
+        let sessionID = features.sessions ? UUID() : nil
+        let data = try PrivilegedCoreCommand.timed("生成 TUN 配置", connection: connection) {
+            try CLITunConfiguration.make(configuration, routeJournalPath: journal, sessionID: sessionID, parentPID: UInt32(getpid()))
+        }
         lock.lock()
         diagnostics = CoreDiagnosticParser()
         lock.unlock()
         process.executableURL = URL(fileURLWithPath: LocalTunWire.workerPath)
         process.arguments = ["client", "--config", "/dev/stdin", "--disable-update-check"]
-        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/var/root", "HYSTERIA_DISABLE_UPDATE_CHECK": "1"]
+        process.environment = Self.launchEnvironment
         process.standardInput = input
         process.standardOutput = FileHandle.nullDevice
         process.standardError = output
@@ -31,6 +39,8 @@ final class PrivilegedWorker {
         }
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in self?.readOutput(handle) }
         do {
+            let coreStart = DispatchTime.now().uptimeNanoseconds
+            var reportedServer = false, reportedInterface = false
             do { try process.run() }
             catch { throw HelperFailure("TUN 客户端启动失败。", failure: LocalTunFailure(.startupFailed)) }
             try input.fileHandleForReading.close()
@@ -41,22 +51,43 @@ final class PrivilegedWorker {
             while true {
                 try checkCancellation(connection, termination: termination)
                 guard process.isRunning else { throw HelperFailure("TUN 客户端启动失败。", failure: exitFailure(.startupFailed)) }
-                lock.lock(); let ready = diagnostics.ready; lock.unlock()
+                lock.lock()
+                let ready = diagnostics.ready
+                let authenticated = diagnostics.serverAuthenticated
+                let interfaceReady = diagnostics.nativeInterfaceReady
+                lock.unlock()
+                if authenticated && !reportedServer {
+                    reportedServer = true
+                    PrivilegedCoreCommand.recordTime("核心已认证服务器（自进程启动）", since: coreStart, connection: connection)
+                }
+                if interfaceReady && !reportedInterface {
+                    reportedInterface = true
+                    PrivilegedCoreCommand.recordTime("核心已建立网卡及路由（自进程启动）", since: coreStart, connection: connection)
+                }
                 if ready { break }
                 guard ContinuousClock.now < deadline else { throw HelperFailure("TUN 客户端连接超时。", failure: LocalTunFailure(.startupTimedOut)) }
                 Thread.sleep(forTimeInterval: 0.02)
             }
             guard process.isRunning else { throw HelperFailure("TUN 客户端启动后退出。", failure: exitFailure(.startupFailed)) }
+            if let sessionID {
+                interfaceSession = try PrivilegedCoreCommand.timed("验证接口会话身份", connection: connection) {
+                    try PrivilegedCoreCommand.activeSession(id: sessionID, workerPID: process.processIdentifier)
+                }
+            }
+            guard process.isRunning else { throw HelperFailure("TUN 客户端启动后退出。", failure: exitFailure(.startupFailed)) }
         } catch {
             try? stop()
+            lock.lock(); let knownFailure = diagnostics.startupFailure; lock.unlock()
+            if let knownFailure { throw HelperFailure(knownFailure.message, failure: exitFailure(knownFailure)) }
             throw error
         }
     }
 
     func exitFailure(_ code: LocalTunFailureCode = .workerExited) -> LocalTunFailure {
-        guard process.processIdentifier > 0, !process.isRunning else { return LocalTunFailure(code) }
+        lock.lock(); let coreFailure = diagnostics.coreFailure; let coreReason = diagnostics.coreReason; lock.unlock()
+        guard process.processIdentifier > 0, !process.isRunning else { return LocalTunFailure(code, coreFailure: coreFailure, coreReason: coreReason) }
         return LocalTunFailure(code, exitStatus: process.terminationStatus,
-                               terminatedBySignal: process.terminationReason == .uncaughtSignal)
+                               terminatedBySignal: process.terminationReason == .uncaughtSignal, coreFailure: coreFailure, coreReason: coreReason)
     }
 
     func takeDiagnosticEvents() -> [LocalTunEvent] {
@@ -69,7 +100,7 @@ final class PrivilegedWorker {
     func stop() throws {
         if process.isRunning {
             process.interrupt()
-            waitForExit(seconds: 3)
+            waitForExit(seconds: 6)
             if process.isRunning { process.terminate(); waitForExit(seconds: 1) }
             if process.isRunning { kill(process.processIdentifier, SIGKILL); waitForExit(seconds: 1) }
         }
@@ -77,11 +108,16 @@ final class PrivilegedWorker {
         lock.lock()
         // Capture the final metric frame emitted during graceful core shutdown before closing the pipe.
         if !outputClosed {
-            var remaining = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = read(output.fileHandleForReading.fileDescriptor, &remaining, remaining.count)
-                guard count > 0 else { break }
-                diagnostics.consume(Data(remaining.prefix(count)))
+            // Preflight may have failed before start configured this pipe.
+            let descriptor = output.fileHandleForReading.fileDescriptor
+            let flags = fcntl(descriptor, F_GETFL)
+            if flags >= 0 && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) >= 0 {
+                var remaining = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let count = read(descriptor, &remaining, remaining.count)
+                    guard count > 0 else { break }
+                    diagnostics.consume(Data(remaining.prefix(count)))
+                }
             }
         }
         outputClosed = true
@@ -91,13 +127,15 @@ final class PrivilegedWorker {
         for handle in [input.fileHandleForReading, input.fileHandleForWriting,
                        output.fileHandleForWriting] { try? handle.close() }
         if process.processIdentifier > 0 { try Self.recoverDirectRoutes() }
+        interfaceSession = nil
     }
 
-    /// Refuses legacy direct-route journals that only the old installed worker can recover.
+    /// Recovers the new core journal while preserving legacy records for their original worker.
     static func recoverDirectRoutes() throws {
-        guard FileManager.default.fileExists(atPath: LocalTunWire.directRoutesJournalPath) else { return }
-        // Old journals belong to the patched worker and must be recovered by that installed version.
-        throw HelperFailure("发现旧版分流路由记录，请先使用旧版后台完成清理，再更新后台。", failure: LocalTunFailure(.recoveryFailed))
+        if FileManager.default.fileExists(atPath: LocalTunWire.directRoutesJournalPath) {
+            throw HelperFailure("发现旧版分流路由记录，请先使用旧版后台完成清理，再更新后台。", failure: LocalTunFailure(.recoveryFailed))
+        }
+        try PrivilegedCoreCommand.recoverRouteJournal()
     }
 
     private func writeConfiguration(_ data: Data, connection: HelperSocket, termination: HelperTermination) throws {

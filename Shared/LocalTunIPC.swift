@@ -6,6 +6,7 @@ public enum LocalTunWire {
     public static let installationDirectory = "/Library/PrivilegedHelperTools/dev.hy2ui"
     public static let socketPath = installationDirectory + "/control.sock"
     public static let workerPath = installationDirectory + "/hy2-tun-worker"
+    public static let routeJournalPath = installationDirectory + "/tun-routes-v1.json"
     public static let directRoutesJournalPath = installationDirectory + "/direct-routes.json"
     public static let journalPath = installationDirectory + "/dns-recovery.plist"
     public static let maxMessageBytes = 65_536
@@ -130,6 +131,54 @@ public struct CoreTelemetryObservation: Sendable {
     public init(session: UUID, metrics: CoreTelemetry) { self.session = session; self.metrics = metrics }
 }
 
+/// Identifies a process by PID and birth time rather than a reusable PID alone.
+public struct LocalTunProcessIdentity: Codable, Equatable, Sendable {
+    public let pid: UInt32
+    public let startSeconds: UInt64
+    public let startMicroseconds: UInt64
+    private enum CodingKeys: String, CodingKey { case pid; case startSeconds = "start_seconds"; case startMicroseconds = "start_microseconds" }
+    public init(pid: UInt32, startSeconds: UInt64, startMicroseconds: UInt64) {
+        self.pid = pid; self.startSeconds = startSeconds; self.startMicroseconds = startMicroseconds
+    }
+    public var isValid: Bool { pid > 1 && pid <= UInt32(Int32.max) && startSeconds > 0 && startMicroseconds < 1_000_000 }
+    public var isCurrent: Bool {
+        guard isValid else { return false }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
+        return proc_pidinfo(Int32(pid), PROC_PIDTBSDINFO, 0, &info, size) == size
+            && info.pbi_start_tvsec == startSeconds && info.pbi_start_tvusec == startMicroseconds
+    }
+}
+
+/// Carries the kernel interface name and index returned for the owned TUN device.
+public struct LocalTunInterfaceIdentity: Codable, Equatable, Sendable {
+    public let name: String
+    public let index: UInt32
+    public init(name: String, index: UInt32) { self.name = name; self.index = index }
+    public var isValid: Bool {
+        let number = name.dropFirst(4)
+        return name.hasPrefix("utun") && name.utf8.count <= 15 && !number.isEmpty
+            && number.utf8.allSatisfy { (48...57).contains($0) } && index > 0
+    }
+    public var isCurrent: Bool { isValid && name.withCString { if_nametoindex($0) } == index }
+}
+
+/// Associates the Hy2UI session token with its actual interface and original worker/helper identities.
+public struct LocalTunInterfaceSession: Codable, Equatable, Sendable {
+    public let id: String
+    public let owner: String
+    public let process: LocalTunProcessIdentity
+    public let interface: LocalTunInterfaceIdentity
+    public let parent: LocalTunProcessIdentity?
+    public init(id: String, owner: String = "dev.hy2ui", process: LocalTunProcessIdentity, interface: LocalTunInterfaceIdentity, parent: LocalTunProcessIdentity? = nil) {
+        self.id = id; self.owner = owner; self.process = process; self.interface = interface; self.parent = parent
+    }
+    public func validate() throws {
+        guard UUID(uuidString: id) != nil, owner == "dev.hy2ui", process.isValid, interface.isValid,
+              parent.map(\.isValid) ?? true else { throw LocalTunProtocolError.invalidMessage }
+    }
+}
+
 /// Reports a helper lifecycle result without including credentials or raw worker output.
 public struct LocalTunEvent: Codable, Sendable {
     public let kind: LocalTunEventKind
@@ -137,13 +186,15 @@ public struct LocalTunEvent: Codable, Sendable {
     public let failure: LocalTunFailure?
     public let coreEvent: LocalTunCoreEvent?
     public let metrics: CoreTelemetry?
+    public let interfaceSession: LocalTunInterfaceSession?
 
-    public init(kind: LocalTunEventKind, message: String? = nil, failure: LocalTunFailure? = nil, coreEvent: LocalTunCoreEvent? = nil, metrics: CoreTelemetry? = nil) {
+    public init(kind: LocalTunEventKind, message: String? = nil, failure: LocalTunFailure? = nil, coreEvent: LocalTunCoreEvent? = nil, metrics: CoreTelemetry? = nil, interfaceSession: LocalTunInterfaceSession? = nil) {
         self.kind = kind
         self.message = message
         self.failure = failure
         self.coreEvent = coreEvent
         self.metrics = metrics
+        self.interfaceSession = interfaceSession
     }
 }
 
@@ -191,10 +242,11 @@ public enum LocalTunMessageCodec {
 
 /// Names safe failure categories without forwarding worker stderr or caller-provided values.
 public enum LocalTunFailureCode: String, Codable, Sendable {
-    case startupFailed, startupTimedOut, workerExited, dnsFailed, recoveryFailed, invalidRequest, permissions, cancelled, unknown
+    case startupFailed, startupTimedOut, workerExited, dnsFailed, recoveryFailed, captureConflict, invalidRequest, permissions, cancelled, unknown
     public var message: String {
         switch self {
         case .startupFailed: "TUN 核心启动失败，请检查后台日志。"
+        case .captureConflict: "存在其他 VPN／增强模式接管，或出口路由不明确。请先关闭其他增强模式后重试。"
         case .startupTimedOut: "TUN 核心启动超时。"
         case .workerExited: "TUN 核心意外退出，请先恢复网络设置。"
         case .dnsFailed: "后台无法设置或恢复 DNS。"
@@ -207,19 +259,59 @@ public enum LocalTunFailureCode: String, Codable, Sendable {
     }
 }
 
+/// Maps stable core error identifiers to safe diagnostic guidance without retaining stderr.
+public enum LocalTunCoreFailure: String, Codable, Sendable, CaseIterable {
+    case runtimeFailure = "runtime_failure", captureConflict = "capture_conflict"
+    case tunParent = "tun_parent", tunDevice = "tun_device", tunIdentity = "tun_identity"
+    case tunRoutes = "tun_routes", tunRouteInspection = "tun_route_inspection"
+    case tunAddressConflict = "tun_address_conflict"
+    case listenerBind = "listener_bind", tlsRead = "tls_read", tlsInvalid = "tls_invalid"
+    case connectionFailed = "connection_failed", authenticationRejected = "authentication_rejected"
+    case configurationRead = "configuration_read", configurationParse = "configuration_parse"
+    case configurationTooLarge = "configuration_too_large", configurationInvalid = "configuration_invalid"
+
+    public var guidance: String {
+        switch self {
+        case .tunParent: "后台父进程身份校验或监控失败，尚不能据此认定网卡权限不足。"
+        case .tunDevice: "创建或配置 utun 接口失败，包括地址、MTU 和启用接口；需检查系统返回的错误。"
+        case .tunIdentity: "网卡已创建，但读取接口或进程身份失败；未确认启动成功。"
+        case .tunAddressConflict: "虚拟网卡地址段与已有路由冲突，尚未创建接口；需要选择未占用的网卡地址段。"
+        case .tunRoutes: "安装 TUN 路由或写入恢复记录失败，请先完成网络恢复后重试。"
+        case .tunRouteInspection: "创建网卡前读取系统路由失败，尚未进入网卡创建步骤。"
+        case .runtimeFailure: "核心运行阶段失败；该分类尚不能区分父进程校验、网卡创建或路由操作，不能据此认定权限不足。"
+        case .captureConflict: "路由预检失败：检测到其他隧道接管或出口路由不明确，请检查当前路由。"
+        case .listenerBind: "本地监听绑定失败，请检查监听地址及端口占用。"
+        case .tlsRead: "TLS 文件读取失败，请检查证书文件路径和后台的读取权限。"
+        case .tlsInvalid: "TLS 配置无效，请检查证书、密钥及 TLS 设置。"
+        case .connectionFailed: "服务器连接建立失败，请检查 UDP 可达性、TLS 名称及服务端日志；这不等于网卡权限不足。"
+        case .authenticationRejected: "服务器拒绝认证，请检查服务器地址、密码和服务端认证配置。"
+        case .configurationRead: "核心无法读取配置，请检查后台向核心传递配置的管道。"
+        case .configurationParse: "核心无法解析配置，请核对后台生成的配置与核心版本是否兼容。"
+        case .configurationTooLarge: "配置超过核心大小限制，请检查后台生成的配置。"
+        case .configurationInvalid: "配置校验失败，请核对当前核心支持的 TUN 参数。"
+        }
+    }
+}
+
 /// Carries an allowlisted error category and numeric process exit details across the helper boundary.
 public struct LocalTunFailure: Codable, LocalizedError, Sendable {
     public let code: LocalTunFailureCode
+    public let coreReason: String?
+    public let coreFailure: LocalTunCoreFailure?
     public let exitStatus: Int32?
     public let terminatedBySignal: Bool
-    public init(_ code: LocalTunFailureCode, exitStatus: Int32? = nil, terminatedBySignal: Bool = false) {
+    public init(_ code: LocalTunFailureCode, exitStatus: Int32? = nil, terminatedBySignal: Bool = false, coreFailure: LocalTunCoreFailure? = nil, coreReason: String? = nil) {
         self.code = code
+        self.coreFailure = coreFailure
+        self.coreReason = coreReason
         self.exitStatus = exitStatus
         self.terminatedBySignal = terminatedBySignal
     }
     public var errorDescription: String? { code.message }
     public var diagnostic: String {
-        "\(code.message) [code=\(code.rawValue), exit=\(exitStatus.map(String.init) ?? "unknown"), signal=\(terminatedBySignal)]"
+        let summary = "\(code.message) [code=\(code.rawValue), exit=\(exitStatus.map(String.init) ?? "unknown"), signal=\(terminatedBySignal)]"
+        guard let coreFailure else { return summary }
+        return summary + "\n  core=\(coreFailure.rawValue)：\(coreFailure.guidance)" + (coreReason.map { "\n  " + $0 } ?? "")
     }
 }
 

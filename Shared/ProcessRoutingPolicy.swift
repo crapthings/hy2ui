@@ -20,7 +20,7 @@ public struct ProcessRoutingTarget: Equatable, Sendable {
     }
 }
 
-/// Applies process shortcuts to the same persisted patterns consumed by the existing local TUN rule matcher.
+/// Applies process shortcuts to the same persisted patterns consumed by the native local TCP process matcher.
 public enum ProcessRoutingPolicy {
     public static func matchingPatterns(for target: ProcessRoutingTarget, in configuration: RoutingConfiguration) -> [String] {
         configuration.activeRules.directProcesses.filter { ProcessRulePattern.matches($0, path: target.path) }

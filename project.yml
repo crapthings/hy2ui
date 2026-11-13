@@ -54,6 +54,7 @@ targets:
           - $(SRCROOT)/LocalTunHelper/HelperSocket.swift
           - $(SRCROOT)/LocalTunHelper/LocalDNSResolvers.swift
           - $(SRCROOT)/LocalTunHelper/LocalTunServer.swift
+          - $(SRCROOT)/LocalTunHelper/PrivilegedCoreCommand.swift
           - $(SRCROOT)/LocalTunHelper/PrivilegedDNS.swift
           - $(SRCROOT)/LocalTunHelper/PrivilegedWorker.swift
           - $(SRCROOT)/LocalTunHelper/TrustedInstallation.swift

@@ -24,7 +24,7 @@ require_root_file() {
 
 # Waits briefly for the old daemon's exclusive recovery lock before refusing an unsafe replacement.
 recover_dns() {
-  local recovery_deadline=$((SECONDS + 20)) recovery_error
+  local recovery_deadline=$((SECONDS + 35)) recovery_error
   while ! recovery_error="$("$helper_path" --recover-dns 2>&1)"; do
     if (( SECONDS >= recovery_deadline )); then
       echo "$recovery_error" >&2
@@ -55,6 +55,11 @@ if [[ -e "$helper_path" ]]; then
   recover_dns
 elif [[ -e "$helper_directory/dns-recovery.plist" || -L "$helper_directory/dns-recovery.plist" || -e "$helper_directory/direct-routes.json" || -L "$helper_directory/direct-routes.json" ]]; then
   echo 'DNS recovery exists but the installed recovery helper is missing; leaving installed files intact.' >&2
+  exit 1
+fi
+# Older helpers may not understand the newer route journal; never replace its recovery binary.
+if [[ -e "$helper_directory/tun-routes-v1.json" || -L "$helper_directory/tun-routes-v1.json" ]]; then
+  echo 'TUN route recovery is not confirmed; installed files and the journal were preserved.' >&2
   exit 1
 fi
 if [[ -e "$socket_path" || -L "$socket_path" ]]; then

@@ -9,11 +9,11 @@ import Foundation
         configuration.addressRules = [try AddressRule(target: "example.com", action: .proxy),
                                       try AddressRule(target: "192.168.1.42/24", action: .direct)]
         let rows = RuleListEntry.entries(in: configuration)
-        precondition(rows.count == 4 && Set(rows.map(\.id)).count == rows.count)
+        precondition(rows.count == 6 && Set(rows.map(\.id)).count == rows.count)
         precondition(rows.last?.isFinal == true && rows.last?.type == "FINAL")
         precondition(rows.last?.value == "", "FINAL has no matching value")
-        precondition(!rows.contains { $0.type.hasPrefix("PROCESS") })
-        precondition(RuleEditorKind.allCases.allSatisfy { !$0.isProcess })
+        precondition(rows.filter { $0.type.hasPrefix("PROCESS") }.count == 2)
+        precondition(RuleEditorKind.allCases.contains(.processPath))
         let domain = rows.first { $0.value == "example.com" }!
         precondition(domain.policy == "FINAL", "explicit address rules must override legacy direct domains")
         let network = rows.first { $0.type == "IP-CIDR" }!
@@ -58,7 +58,7 @@ import Foundation
         precondition(RuleListEntry.entries(in: configuration).contains { $0.type == "IP-CIDR6" && $0.policy == "FINAL" })
         let encoded = try JSONEncoder().encode(configuration)
         let decoded = try JSONDecoder().decode(RoutingConfiguration.self, from: encoded)
-        precondition(decoded == configuration, "legacy process data remains readable without exposing an editor")
+        precondition(decoded == configuration, "legacy process data remains readable")
 
         var exact = RuleEditorDraft(kind: .domainExact)
         exact.value = "exact.example"

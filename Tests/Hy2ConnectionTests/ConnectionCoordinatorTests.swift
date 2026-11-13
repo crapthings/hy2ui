@@ -183,7 +183,7 @@ func failedRestoreRetainsResourcesUntilRetry() async {
     let worker = FakeWorker()
     let proxy = FakeProxy()
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
-    await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: Profile(), configuration: Data("{}".utf8), credentials: Credentials())
     #expect(coordinator.state == .connected)
     proxy.restoreFails = true
     await coordinator.disconnect()
@@ -205,7 +205,7 @@ func cancelledCallerDoesNotStartResources() async {
     let worker = FakeWorker()
     let proxy = FakeProxy()
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
-    let task = Task { await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials()) }
+    let task = Task { await coordinator.connect(profile: Profile(), configuration: Data("{}".utf8), credentials: Credentials()) }
     task.cancel()
     await task.value
     #expect(worker.starts == 0)
@@ -222,7 +222,7 @@ func cancellationDuringStartupNeverEnablesProxy() async {
     let proxy = FakeProxy()
     let vpn = FakeVPN()
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: vpn)
-    let connect = Task { await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials()) }
+    let connect = Task { await coordinator.connect(profile: Profile(), configuration: Data("{}".utf8), credentials: Credentials()) }
     await gate.waitUntilEntered()
     let cancelled = TestGate()
     vpn.onCancellation = { cancelled.release() }
@@ -244,7 +244,7 @@ func concurrentDisconnectsCleanResourcesOnce() async {
     worker.stopGate = stopGate
     let proxy = FakeProxy()
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
-    await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: Profile(), configuration: Data("{}".utf8), credentials: Credentials())
     let first = Task { await coordinator.disconnect() }
     await stopGate.waitUntilEntered()
     let second = Task { await coordinator.disconnect() }
@@ -263,7 +263,7 @@ func exitedWorkerCannotEnableProxyAfterReadiness() async {
     worker.exitsBeforeStartReturns = true
     let proxy = FakeProxy()
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
-    await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: Profile(), configuration: Data("{}".utf8), credentials: Credentials())
     #expect(proxy.enables == 0)
     #expect(worker.stops == 1)
     #expect(!coordinator.hasOwnedResources)
@@ -285,7 +285,7 @@ func combinedCaptureStartsBothServicesInOrder() async {
     var profile = Profile()
     profile.enhancedModeEnabled = true
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: networkExtension, localTunnel: local)
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     #expect(order == ["worker", "proxy", "tun"])
     #expect(coordinator.systemProxyActive)
     #expect(coordinator.enhancedModeActive)
@@ -306,7 +306,7 @@ func enhancedOnlyDoesNotStartSystemProxy() async {
     profile.systemProxyEnabled = false
     profile.enhancedModeEnabled = true
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN(), localTunnel: local)
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     #expect(local.starts == 1)
     #expect(worker.starts == 0)
     #expect(proxy.enables == 0)
@@ -325,7 +325,7 @@ func legacyNetworkExtensionBackendIsRejected() async {
     profile.enhancedModeEnabled = true
     profile.enhancedBackend = .networkExtension
     let coordinator = ConnectionCoordinator(worker: FakeWorker(), proxy: FakeProxy(), vpn: extensionService, localTunnel: local)
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     #expect(extensionService.starts == 0)
     #expect(local.starts == 0)
     #expect(coordinator.lastError != nil)
@@ -342,7 +342,7 @@ func failedTunnelStartRollsBackBothResources() async {
     var profile = Profile()
     profile.enhancedModeEnabled = true
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN(), localTunnel: local)
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     #expect(proxy.enables == 1)
     #expect(!proxy.needsRecovery)
     #expect(worker.stops == 1)
@@ -360,7 +360,7 @@ func failedProxyRestoreStillCleansTunnel() async {
     var profile = Profile()
     profile.enhancedModeEnabled = true
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN(), localTunnel: local)
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     proxy.restoreFails = true
     await coordinator.disconnect()
     #expect(local.stops == 1)
@@ -383,7 +383,7 @@ func failedTunnelCleanupRetainsOwnershipWithoutKeepingProxy() async {
     var profile = Profile()
     profile.enhancedModeEnabled = true
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN(), localTunnel: local)
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     local.stopFails = true
     await coordinator.disconnect()
     #expect(worker.stops == 1)
@@ -398,16 +398,18 @@ func failedTunnelCleanupRetainsOwnershipWithoutKeepingProxy() async {
 
 /// Shares one frozen server endpoint between proxy and tunnel to keep its route exclusion consistent.
 @Test @MainActor
-func combinedCaptureSharesOneResolvedConfiguration() async {
+func combinedCaptureSharesOneResolvedConfiguration() async throws {
     let worker = FakeWorker()
     let local = FakeVPN()
     var profile = Profile()
     profile.enhancedModeEnabled = true
-    let frozen = Data("same-numeric-endpoint".utf8)
+    let frozen = Data(#"{"server":"192.0.2.1:443"}"#.utf8)
     let coordinator = ConnectionCoordinator(worker: worker, proxy: FakeProxy(), vpn: FakeVPN(), localTunnel: local,
         resolveProxyConfiguration: { _ in frozen })
     await coordinator.connect(profile: profile, configuration: Data("original-domain".utf8), credentials: Credentials())
-    #expect(worker.configuration == frozen)
+    let sent = try DesktopCoreConfiguration.object(#require(worker.configuration))
+    #expect(sent["server"] as? String == "192.0.2.1:443")
+    #expect(sent["routing"] != nil)
     #expect(local.configuration == frozen)
     await coordinator.disconnect()
 }
@@ -422,7 +424,7 @@ func cancellationDoesNotWaitForCombinedEndpointResolution() async {
     profile.enhancedModeEnabled = true
     let coordinator = ConnectionCoordinator(worker: worker, proxy: FakeProxy(), vpn: FakeVPN(), localTunnel: local,
         resolveProxyConfiguration: { configuration in await gate.suspend(); return configuration })
-    let connecting = Task { await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials()) }
+    let connecting = Task { await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials()) }
     await gate.waitUntilEntered()
     await coordinator.disconnect()
     #expect(coordinator.state == .idle)
@@ -440,7 +442,7 @@ func interruptedLocalTunnelRequiresAcknowledgedCleanup() async {
     var profile = Profile()
     profile.systemProxyEnabled = false
     profile.enhancedModeEnabled = true
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     local.onStatus?(.recoveryRequired)
     #expect(coordinator.state == .recoveryRequired)
     #expect(!coordinator.enhancedModeActive && coordinator.hasOwnedResources)
@@ -463,7 +465,7 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     var profile = Profile()
     profile.systemProxyEnabled = false
     profile.enhancedModeEnabled = true
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     #expect(coordinator.state == .recoveryRequired)
     #expect(coordinator.hasOwnedResources)
     #expect(coordinator.message == coordinator.lastError)
@@ -478,7 +480,7 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     var profile = Profile()
     profile.systemProxyEnabled = false
     profile.enhancedModeEnabled = true
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials())
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
     local.onStatus?(.recoveryRequired)
     #expect(coordinator.lastError != nil)
     local.onStatus?(.connected)
@@ -494,7 +496,7 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
     var profile = Profile(); profile.systemProxyEnabled = true; profile.enhancedModeEnabled = false
     var routing = RoutingConfiguration(); routing.mode = .generatedPAC
-    await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials(), routing: routing)
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials(), routing: routing)
     #expect(coordinator.state == .connected)
     #expect(proxy.pacEnables == 1 && proxy.enables == 0)
     #expect(proxy.pacConfiguration == routing)
@@ -508,7 +510,7 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     let coordinator = ConnectionCoordinator(worker: worker, proxy: proxy, vpn: FakeVPN())
     var profile = Profile(); profile.systemProxyEnabled = true; profile.enhancedModeEnabled = false
     var routing = RoutingConfiguration(); routing.mode = .generatedPAC
-    let attempt = Task { await coordinator.connect(profile: profile, configuration: Data(), credentials: Credentials(), routing: routing) }
+    let attempt = Task { await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials(), routing: routing) }
     await gate.waitUntilEntered()
     let disconnect = Task { await coordinator.disconnect() }
     while coordinator.state != .stopping { await Task.yield() }
@@ -523,7 +525,7 @@ func startupReturnDoesNotOverwriteInterruptedTunnelNotice() async {
     let proxy = FakeProxy()
     let coordinator = ConnectionCoordinator(worker: FakeWorker(), proxy: proxy, vpn: FakeVPN())
     var routing = RoutingConfiguration(); routing.bypassLocalNetworks = false
-    await coordinator.connect(profile: Profile(), configuration: Data(), credentials: Credentials(), routing: routing)
+    await coordinator.connect(profile: Profile(), configuration: Data("{}".utf8), credentials: Credentials(), routing: routing)
     #expect(coordinator.state == .connected)
     #expect(proxy.manualConfiguration?.bypassLocalNetworks == false)
     await coordinator.disconnect()

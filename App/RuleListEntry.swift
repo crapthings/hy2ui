@@ -41,12 +41,14 @@ struct RuleListEntry: Identifiable, Equatable {
         }
     }
     var policy: String {
+        if case let .address(rule) = source, rule.action == .reject { return "REJECT" }
         if case let .address(rule) = source, rule.action == .proxy { return "FINAL" }
         return isFinal ? "FINAL" : "DIRECT"
     }
 
     static func entries(in configuration: RoutingConfiguration) -> [RuleListEntry] {
-        var sources: [RuleListSource] = []
+        var processes = Set<String>()
+        var sources: [RuleListSource] = configuration.directProcesses.filter { processes.insert($0).inserted }.map { .process($0) }
         var addresses = Set<String>()
         for rule in configuration.addressRules where addresses.insert(rule.target).inserted {
             sources.append(.address(rule))
@@ -76,7 +78,7 @@ struct RuleListEntry: Identifiable, Equatable {
 /// Lists only the editable rule types currently supported by the existing protocol adapter.
 enum RuleEditorKind: String, CaseIterable, Identifiable {
     case process, processPath, domainExact, domain, domainKeyword, network, network6
-    static var allCases: [RuleEditorKind] { [.domainExact, .domain, .domainKeyword, .network, .network6] }
+    static var allCases: [RuleEditorKind] { [.domainExact, .domain, .network, .network6, .process, .processPath] }
     var id: String { rawValue }
     var isProcess: Bool { self == .process || self == .processPath }
     var isDomain: Bool { [.domainExact, .domain, .domainKeyword].contains(self) }
@@ -97,7 +99,7 @@ enum RuleEditorKind: String, CaseIterable, Identifiable {
     var placeholder: String {
         switch self {
         case .process: return "WeChat"
-        case .processPath: return "/Applications/WeChat.app/"
+        case .processPath: return "/Applications/WeChat.app/Contents/MacOS/WeChat"
         case .domainExact, .domain: return "example.com"
         case .domainKeyword: return "example"
         case .network: return "192.168.1.0/24"
@@ -106,8 +108,8 @@ enum RuleEditorKind: String, CaseIterable, Identifiable {
     }
     var help: String {
         switch self {
-        case .process: return "匹配进程名称，支持 * 和 ? 通配符。"
-        case .processPath: return "匹配绝对路径，支持 * 和 ?；以 / 结尾时匹配应用目录。"
+        case .process: return "精确匹配可执行文件名；需要支持进程规则的 dev 核心，仅限本机 HTTP/SOCKS TCP。"
+        case .processPath: return "精确匹配可执行文件完整路径，不支持应用目录或通配符。"
         case .domainExact: return "仅匹配此域名。"
         case .domain: return "匹配此域名及其子域名。"
         case .domainKeyword: return "匹配域名中包含的关键词。"
@@ -146,7 +148,6 @@ struct RuleEditorDraft: Identifiable {
 
     func apply(to configuration: inout RoutingConfiguration) throws {
         guard original?.isFinal != true else { return }
-        guard !kind.isProcess else { throw ConfigurationError.invalid("官方 CLI 不支持进程分流。") }
         let target = value.trimmingCharacters(in: .whitespacesAndNewlines)
         var next = configuration
         let processIndex = original.flatMap { entry in configuration.directProcesses.firstIndex(of: entry.value) }
@@ -154,7 +155,7 @@ struct RuleEditorDraft: Identifiable {
         original?.remove(from: &next)
         let newID: String
         if kind.isProcess {
-            try ProcessRulePattern.validate(target)
+            try NativeClientRouting.validateProcess(target)
             guard (kind == .processPath) == target.hasPrefix("/") else {
                 throw ConfigurationError.invalid("进程名称或路径与规则类型不符。")
             }

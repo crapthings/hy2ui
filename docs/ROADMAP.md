@@ -5,7 +5,7 @@ Implemented behavior is documented in [the development guide](DEVELOPMENT.md). T
 ## Upstream CLI integration
 
 - Expose additional supported client configuration and CLI operations as needed.
-- Revisit client routing or telemetry only if upstream provides stable client interfaces; do not add source patches.
+- Connect additional supported routing/control and telemetry APIs; keep core changes in hysteria-rust.
 - Handling physical-interface and resolver changes without requiring a reconnect.
 
 ## Lifecycle and distribution

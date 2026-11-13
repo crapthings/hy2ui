@@ -15,10 +15,11 @@ private struct PolicySmoke {
         let migrated = RoutingPreferences(defaults: preferences)
         try require(migrated.configuration.directProcesses == ["LegacyProcess"] && migrated.configuration.finalAction == .direct,
                     "loading discarded saved routing choices")
+        try migrated.configuration.validateCapture(systemProxy: true, enhanced: false, backend: .localTun)
         var rejected = false
-        do { try migrated.configuration.validateCapture(systemProxy: true, enhanced: false, backend: .localTun) }
+        do { try migrated.configuration.validateCapture(systemProxy: true, enhanced: true, backend: .localTun) }
         catch { rejected = true }
-        try require(rejected, "unsupported process routing was accepted for capture")
+        try require(rejected, "unsupported process routing was accepted for TUN")
         try require(preferences.data(forKey: "routingConfiguration") == legacyData,
                     "loading migrated routing overwrote the original record")
         // The remaining service tests start with a supported, independent routing configuration.

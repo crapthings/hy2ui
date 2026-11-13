@@ -16,8 +16,9 @@ final class LocalTunServer {
 
     func run() throws {
         try TrustedInstallation.validate()
-        try dns.restore()
-        try PrivilegedWorker.recoverDirectRoutes()
+        // Attempt startup recovery, but keep IPC reachable if records need attention.
+        do { try cleanup() }
+        catch { HelperDiagnostics.record(LocalTunFailure(.recoveryFailed)) }
         try createListener()
         defer { if listener >= 0 { close(listener) }; unlink(LocalTunWire.socketPath) }
         while !termination.isRequested {
@@ -34,7 +35,8 @@ final class LocalTunServer {
             } catch {
                 let failure = HelperFailure.safeFailure(error)
                 HelperDiagnostics.record(failure)
-                try? connection.send(LocalTunEvent(kind: .error, message: failure.code.message, failure: failure))
+                let identity = worker?.interfaceSession ?? (try? PrivilegedCoreCommand.recordedSession(timeout: .seconds(1)))
+                try? connection.send(LocalTunEvent(kind: .error, message: failure.code.message, failure: failure, interfaceSession: identity))
             }
             connection.closeSocket()
         }
@@ -42,7 +44,20 @@ final class LocalTunServer {
     }
 
     private func serve(_ connection: HelperSocket) throws {
-        do { try handle(connection) }
+        guard let request = try connection.readRequest(timeout: .seconds(5), termination: termination) else {
+            throw HelperFailure("本地增强模式请求超时。")
+        }
+        // A query must not enter the mutating failure-cleanup path either.
+        if request.command == .status {
+            guard worker == nil, !dns.needsRecovery,
+                  !FileManager.default.fileExists(atPath: LocalTunWire.directRoutesJournalPath) else {
+                throw HelperFailure("存在待恢复会话。", failure: LocalTunFailure(.recoveryFailed))
+            }
+            try PrivilegedCoreCommand.checkIdleRouteJournal()
+            try connection.send(LocalTunEvent(kind: .stopped))
+            return
+        }
+        do { try handle(request, connection: connection) }
         catch {
             let original = error
             do { try cleanup() }
@@ -51,32 +66,31 @@ final class LocalTunServer {
         }
     }
 
-    private func handle(_ connection: HelperSocket) throws {
-        guard let request = try connection.readRequest(timeout: .seconds(5), termination: termination) else {
-            throw HelperFailure("本地增强模式请求超时。")
-        }
+    private func handle(_ request: LocalTunRequest, connection: HelperSocket) throws {
         switch request.command {
         case .status:
-            if worker != nil || dns.needsRecovery { try cleanup() }
-            try connection.send(LocalTunEvent(kind: .stopped))
-            return
+            throw LocalTunProtocolError.invalidMessage
         case .stop:
             try cleanup()
             try connection.send(LocalTunEvent(kind: .stopped))
             return
         case .start:
-            try cleanup()
+            let totalStart = DispatchTime.now().uptimeNanoseconds
+            try PrivilegedCoreCommand.timed("检查与恢复旧会话", connection: connection) { try cleanup() }
             guard let configuration = request.configuration else { throw LocalTunProtocolError.invalidConfiguration }
             let current = PrivilegedWorker()
             worker = current
             try current.start(configuration: configuration, connection: connection, termination: termination)
             if configuration.finalDirect != true {
-                try dns.enable(servers: configuration.dns, bypassLocalNetworks: configuration.bypassLocalNetworks ?? true)
+                try PrivilegedCoreCommand.timed("应用系统 DNS", connection: connection) {
+                    try dns.enable(servers: configuration.dns, bypassLocalNetworks: configuration.bypassLocalNetworks ?? true)
+                }
             }
             guard current.isRunning else {
                 throw HelperFailure("TUN 客户端已退出。", failure: current.exitFailure())
             }
-            try connection.send(LocalTunEvent(kind: .ready))
+            PrivilegedCoreCommand.recordTime("增强模式启动总计", since: totalStart, connection: connection)
+            try connection.send(LocalTunEvent(kind: .ready, interfaceSession: current.interfaceSession))
         }
 
         while !termination.isRequested {
@@ -101,6 +115,8 @@ final class LocalTunServer {
         if let worker {
             try worker.stop()
             self.worker = nil
+        } else {
+            try PrivilegedWorker.recoverDirectRoutes()
         }
     }
 

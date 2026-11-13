@@ -11,11 +11,11 @@ import sys
 import tempfile
 
 # Pins release artifacts independently of the remotely served checksum files.
-RELEASE = "v0.1.0-rc.6"
+RELEASE = "v0.1.0-rc.7"
 # Maps supported Xcode architectures to immutable upstream asset names and SHA-256 digests.
 ARTIFACTS = {
-    "arm64": ("hysteria-rust-macos-arm64", "5f0444749e54855427b5f68c775dbaf39cbd712dd94b737ce43024fecba9a70e"),
-    "x86_64": ("hysteria-rust-macos-x64", "64980ed49ca7e02ef24bb0d99b0dff9192e4acecd1d6aeb9572a8bc1ae02523d"),
+    "arm64": ("hysteria-rust-macos-arm64", "be88ddaf8e6e310b2d704761149b2616f0885c801544f9c8153f56527a48d63d"),
+    "x86_64": ("hysteria-rust-macos-x64", "599681fd94a8b8b4a93c7b6a60ab46842e76d9a7ac07030851ce39d13d71fd61"),
 }
 
 

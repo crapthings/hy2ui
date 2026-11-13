@@ -46,6 +46,25 @@ struct CoreProcessSmoke {
         precondition(lazyCore.isRunning, "DIRECT listeners must not wait for a remote handshake")
         await lazyCore.stop()
 
+        let nativeWorker = try writeWorker(at: directory.appendingPathComponent("native-worker"), body: """
+        import json, sys, time
+        if sys.argv[1] == 'capabilities':
+            print(json.dumps({'schema_version':1,'routing':{'version':1,'process_matching':False}}))
+            sys.exit(0)
+        assert 'routing' in json.load(sys.stdin)
+        for line in ['SOCKS5 proxy listening on test', 'HTTP proxy listening on test']:
+            print(line, file=sys.stderr, flush=True)
+        time.sleep(30)
+        """)
+        let native = CoreProcess(binaryURL: nativeWorker)
+        try await native.start(configuration: Data(#"{"routing":{"version":1,"default":"direct","rules":[]}}"#.utf8), credentials: Credentials())
+        precondition(native.isRunning, "native routing must not require a remote connection")
+        await native.stop()
+        do {
+            try await native.start(configuration: Data(#"{"routing":{"version":1,"default":"proxy","rules":["direct(process-name:Browser)"]}}"#.utf8), credentials: Credentials())
+            preconditionFailure("old core accepted unsupported process rules")
+        } catch { precondition(!native.isRunning) }
+
         let exitingWorker = try writeWorker(at: directory.appendingPathComponent("exiting-worker"), body: """
         import os, sys
         sys.stdin.read()

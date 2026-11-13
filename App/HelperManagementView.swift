@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Groups background maintenance actions and failures beneath a compact installation status.
+/// Manages the owned virtual interface alongside privileged backend installation and recovery.
 struct HelperManagementView: View {
     @Bindable var model: AppModel
     @State private var confirmingRemoval = false
@@ -11,6 +11,14 @@ struct HelperManagementView: View {
         case .checking, .notInstalled: AppTheme.muted
         case .updateAvailable, .legacy, .otherUser, .damaged: AppTheme.warning
         }
+    }
+
+    private var interfaceTitle: String {
+        if let session = model.interfaceSession { return session.interface.name }
+        if model.needsConnectionCleanup { return model.localized("释放状态待确认") }
+        if model.enhancedModeActive { return model.localized("未提供接口身份") }
+        if model.state == .connecting && model.enhancedCaptureEnabled { return model.localized("创建中") }
+        return model.localized("未创建")
     }
 
     var body: some View {
@@ -24,6 +32,37 @@ struct HelperManagementView: View {
                 }
                 Text(model.localized(model.helperInstaller.status.title))
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(statusColor)
+            }
+            SectionCard {
+                VStack(alignment: .leading, spacing: AppTheme.formSpacing) {
+                    HStack {
+                        Text("Hy2UI Tunnel").font(AppTheme.body)
+                        Spacer()
+                        Text(interfaceTitle).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                    }
+                    Text(model.localized(model.needsConnectionCleanup ? "接口释放尚未确认，恢复记录已保留。" : "开启增强模式时创建虚拟接口，停止后释放；无需单独安装网卡驱动。"))
+                        .font(AppTheme.caption).foregroundStyle(model.needsConnectionCleanup ? AppTheme.warning : AppTheme.muted)
+                    if let session = model.interfaceSession {
+                        DisclosureGroup(model.localized("会话身份")) {
+                            Text("ID: \(session.id)\nPID: \(session.process.pid) · Index: \(session.interface.index)")
+                                .font(AppTheme.caption).textSelection(.enabled)
+                        }
+                    }
+                    HStack {
+                        if model.needsConnectionCleanup {
+                            Button(model.localized("重试释放与恢复")) { Task { await model.disconnect() } }
+                                .buttonStyle(AppActionStyle()).disabled(model.isManagingHelper || model.isSwitchingServer)
+                        } else {
+                            Button(model.localized("停止并移除接口")) { Task { await model.setCapture(enhanced: true, enabled: false) } }
+                                .buttonStyle(AppActionStyle())
+                                .disabled(!model.canChangeCapture || (!model.enhancedModeActive && model.interfaceSession == nil && !(model.state == .connecting && model.enhancedCaptureEnabled)))
+                            Spacer()
+                            Button(model.localized("创建并连接")) { Task { await model.setCapture(enhanced: true, enabled: true) } }
+                                .buttonStyle(AppActionStyle(primary: true))
+                                .disabled(!model.canChangeCapture || model.helperInstaller.status != .current || model.enhancedModeActive || model.state == .connecting)
+                        }
+                    }
+                }
             }
             SectionCard {
                 VStack(alignment: .leading, spacing: AppTheme.formSpacing) {
@@ -46,7 +85,7 @@ struct HelperManagementView: View {
         .confirmationDialog(model.localized("卸载增强模式后台？"), isPresented: $confirmingRemoval, titleVisibility: .visible) {
             Button(model.localized("卸载"), role: .destructive) { Task { await model.manageHelper(.uninstall) } }
         } message: {
-            Text(model.localized("断开并卸载后台，保留服务器和密码。"))
+            Text(model.localized("先停止并释放虚拟接口，再卸载后台；保留服务器和密码。"))
         }
     }
 }

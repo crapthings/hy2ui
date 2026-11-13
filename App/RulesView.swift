@@ -14,7 +14,7 @@ private enum RuleTableLayout {
     static let minimumWidth = enabled + number + type + policy + comment + actions + 200 + spacing * 6 + inset * 2
 }
 
-/// Manages PAC domain and IP rules in one selectable list ending with the selected proxy server.
+/// Manages native process, domain and IP rules in one selectable list ending with the selected proxy server.
 struct RulesView: View {
     @Bindable var model: AppModel
     var search = ""
@@ -38,7 +38,7 @@ struct RulesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            Text(model.localized("规则仅用于自动 PAC；不适用于全局代理或增强模式。"))
+            Text(model.localized("规则按列表顺序交给 Rust 核心执行，修改后重新连接生效。进程规则仅限本机 TCP；macOS 增强模式暂不支持分流。"))
                 .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
             actions
             GeometryReader { geometry in
@@ -184,6 +184,7 @@ struct RulesView: View {
                 Menu(entry.policy) {
                     Button("DIRECT") { setPolicy(.direct, for: entry) }
                     Button("FINAL") { setPolicy(.proxy, for: entry) }
+                    Button("REJECT") { setPolicy(.reject, for: entry) }
                 }
                 .menuStyle(.borderlessButton).fixedSize().disabled(!model.initialized)
                 .accessibilityLabel(model.localized("策略") + ": " + entry.value)
@@ -220,11 +221,11 @@ struct RulesView: View {
 
     private func isAvailable(_ entry: RuleListEntry) -> Bool {
         entry.isFinal || (model.systemProxyCaptureEnabled && !model.enhancedCaptureEnabled
-            && model.routing.configuration.mode == .generatedPAC)
+            && model.routing.configuration.requestMode == .rules)
     }
 
     private func scope(_ entry: RuleListEntry) -> String {
-        entry.isFinal ? "其余流量" : "仅自动 PAC · 当前未启用"
+        entry.isFinal ? "其余流量" : "仅系统代理的规则模式 · 当前未启用"
     }
 
     private func openConfiguration(_ entry: RuleListEntry) { openSettings() }

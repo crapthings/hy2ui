@@ -124,6 +124,7 @@ private struct LocalTunServiceSmoke {
         try await rejectsUnexpectedServerIdentity()
         try await ambiguousDisconnectRequiresRetryAcknowledgement()
         try await typedWorkerFailurePreservesRecoveryOwnership()
+        try await rejectsForgedInterfaceSession()
         try await coreDisconnectAndReconnectAreObservedInOrder()
         print("LocalTunService frozen endpoint, concurrent stop, cancellation recovery and peer identity checks passed.")
     }
@@ -141,13 +142,19 @@ private struct LocalTunServiceSmoke {
         try JSONSerialization.data(withJSONObject: ["server": "203.0.113.8:443", "auth": "test-secret", "tls": ["sni": "tls.example.com"]])
     }
 
+    private static func interfaceIdentity() -> LocalTunInterfaceSession {
+        LocalTunInterfaceSession(id: "00000000-0000-4000-8000-000000000001",
+            process: LocalTunProcessIdentity(pid: 1234, startSeconds: 100, startMicroseconds: 1),
+            interface: LocalTunInterfaceIdentity(name: "utun321", index: 42))
+    }
+
     @MainActor
     private static func normalLifecycleUsesFrozenEndpoint() async throws {
         let helper = try MockHelper(connections: 1) { descriptor, _ in
             guard let request = try MockHelper.read(descriptor), request.command == .start,
                   request.configuration?.host == "203.0.113.8",
                   request.configuration?.serverName == "tls.example.com" else { throw LocalTunProtocolError.invalidMessage }
-            try MockHelper.send(LocalTunEvent(kind: .ready), to: descriptor)
+            try MockHelper.send(LocalTunEvent(kind: .ready, interfaceSession: interfaceIdentity()), to: descriptor)
             guard try MockHelper.read(descriptor)?.command == .stop else { throw LocalTunProtocolError.invalidMessage }
             try MockHelper.send(LocalTunEvent(kind: .stopped), to: descriptor)
         }
@@ -156,9 +163,11 @@ private struct LocalTunServiceSmoke {
         service.onStatus = { if $0 == .connected { connected = true } }
         try await service.start(profile: profile(), configuration: frozenConfiguration())
         precondition(connected)
+        precondition(service.interfaceSession == interfaceIdentity())
         async let first: Void = service.stop()
         async let second: Void = service.stop()
         _ = try await (first, second)
+        precondition(service.interfaceSession == nil)
         await helper.finish()
     }
 
@@ -242,7 +251,7 @@ private struct LocalTunServiceSmoke {
                 guard request?.command == .start else { throw LocalTunProtocolError.invalidMessage }
                 try MockHelper.send(LocalTunEvent(kind: .ready), to: descriptor)
                 try MockHelper.send(LocalTunEvent(kind: .error, message: "raw-secret-must-not-be-logged",
-                    failure: LocalTunFailure(.workerExited, exitStatus: 9, terminatedBySignal: true)), to: descriptor)
+                    failure: LocalTunFailure(.workerExited, exitStatus: 9, terminatedBySignal: true), interfaceSession: interfaceIdentity()), to: descriptor)
             } else {
                 guard request?.command == .stop else { throw LocalTunProtocolError.invalidMessage }
                 try MockHelper.send(LocalTunEvent(kind: .stopped), to: descriptor)
@@ -262,8 +271,35 @@ private struct LocalTunServiceSmoke {
         precondition(!statuses.contains(.disconnected), "failure released ownership without cleanup acknowledgement")
         precondition(logs.contains { $0.contains("exit=9") && $0.contains("signal=true") })
         precondition(!logs.contains { $0.contains("raw-secret") })
+        precondition(service.interfaceSession == interfaceIdentity(), "unconfirmed identity must remain available for recovery")
         try await service.stop()
         precondition(statuses.last == .disconnected)
+        precondition(service.interfaceSession == nil)
+        await helper.finish()
+    }
+
+    @MainActor
+    private static func rejectsForgedInterfaceSession() async throws {
+        let valid = interfaceIdentity()
+        let invalid = LocalTunInterfaceSession(id: valid.id, owner: "another.app", process: valid.process, interface: valid.interface)
+        let helper = try MockHelper(connections: 2) { descriptor, index in
+            guard let request = try MockHelper.read(descriptor) else { throw LocalTunProtocolError.invalidMessage }
+            if index == 0 {
+                guard request.command == .start else { throw LocalTunProtocolError.invalidMessage }
+                try MockHelper.send(LocalTunEvent(kind: .ready, interfaceSession: invalid), to: descriptor)
+            } else {
+                guard request.command == .stop else { throw LocalTunProtocolError.invalidMessage }
+                try MockHelper.send(LocalTunEvent(kind: .stopped), to: descriptor)
+            }
+        }
+        let service = LocalTunService(socketPath: helper.path, expectedUID: getuid())
+        var connected = false
+        service.onStatus = { if $0 == .connected { connected = true } }
+        do {
+            try await service.start(profile: profile(), configuration: frozenConfiguration())
+            preconditionFailure("forged interface identity was accepted")
+        } catch { precondition(!connected && service.interfaceSession == nil) }
+        try await service.stop()
         await helper.finish()
     }
 

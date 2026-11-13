@@ -76,3 +76,9 @@ public protocol CoreTelemetryProviding: AnyObject {
 public protocol PACProxyControlling: AnyObject {
     func enablePAC(configuration: RoutingConfiguration, httpPort: Int) async throws
 }
+
+/// Exposes verified session identity without granting the UI raw interface or process control.
+@MainActor
+public protocol TunnelSessionProviding: AnyObject {
+    var interfaceSession: LocalTunInterfaceSession? { get }
+}

@@ -15,7 +15,8 @@ final class RoutingPreferences {
         self.defaults = defaults
         guard let data = defaults.data(forKey: Self.key) else { return }
         do {
-            let value = try JSONDecoder().decode(RoutingConfiguration.self, from: data)
+            var value = try JSONDecoder().decode(RoutingConfiguration.self, from: data)
+            value.mode = .native
             try value.validate()
             configuration = value
         } catch { writable = false; self.error = "无法读取分流配置，原记录已保留。" }
@@ -25,6 +26,7 @@ final class RoutingPreferences {
         guard writable else { throw ConfigurationError.invalid("无法读取分流配置，原记录已保留。") }
         var next = configuration
         try change(&next)
+        next.mode = .native
         // An empty external URL can be edited without committing an invalid connection configuration.
         if next.mode == .externalPAC && next.pacURL.isEmpty {
             var check = next; check.mode = .manual; try check.validate()

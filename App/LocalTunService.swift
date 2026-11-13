@@ -7,7 +7,8 @@ import Hy2Connection
 
 /// Controls a generation-scoped local TUN session and confirms privileged cleanup before releasing ownership.
 @MainActor
-final class LocalTunService: VPNConnectionControlling {
+final class LocalTunService: VPNConnectionControlling, TunnelSessionProviding {
+    private(set) var interfaceSession: LocalTunInterfaceSession?
     var onTelemetry: ((CoreTelemetryObservation) -> Void)?
     var onStatus: ((VPNConnectionStatus) -> Void)?
     var onLog: ((String) -> Void)?
@@ -104,11 +105,15 @@ final class LocalTunService: VPNConnectionControlling {
     private func receive(_ event: LocalTunEvent) {
         switch event.kind {
         case .ready:
+            interfaceSession = event.interfaceSession
+            if let identity = interfaceSession { onLog?("Hy2UI Tunnel: \(identity.interface.name) [session=\(identity.id), pid=\(identity.process.pid)]") }
             let continuation = ready
             ready = nil
             continuation?.resume()
             onStatus?(.connected)
         case .stopped:
+            if let identity = interfaceSession { onLog?("Hy2UI Tunnel released: \(identity.interface.name)") }
+            interfaceSession = nil
             ownershipMayExist = false
             let continuation = ready
             ready = nil
@@ -124,6 +129,7 @@ final class LocalTunService: VPNConnectionControlling {
                 if coreEvent == .connected { onStatus?(.connected) }
             } else if let message = event.message { onLog?(String(message.prefix(2000))) }
         case .error:
+            if let identity = event.interfaceSession { interfaceSession = identity }
             onLog?((event.failure ?? LocalTunFailure(.unknown)).diagnostic)
         }
     }
@@ -156,10 +162,14 @@ final class LocalTunService: VPNConnectionControlling {
                 var confirmed = false
                 for try await event in channel.events {
                     if event.kind == .stopped { confirmed = true }
-                    if event.kind == .error { throw event.failure ?? LocalTunFailure(.unknown) }
+                    if event.kind == .error {
+                        if let identity = event.interfaceSession { interfaceSession = identity }
+                        throw event.failure ?? LocalTunFailure(.unknown)
+                    }
                 }
                 guard confirmed else { throw LocalTunTransportError.closed }
                 ownershipMayExist = false
+                interfaceSession = nil
             } onCancel: { channel.abort() }
         } catch {
             if channel.requestMayHaveBeenSent {

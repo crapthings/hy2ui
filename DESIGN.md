@@ -1,42 +1,116 @@
-# Hy2UI design notes
+# Hy2UI product and interface design
 
-> 当前核心架构：官方 CLI 二进制（rc.6），不编译或 patch Rust。Network Extension、进程分流、核心流量统计与 RTT 测试入口已停用；规则仅用于系统自动 PAC。运行边界以 docs/DEVELOPMENT.md 为准。
+## Product model
 
+Follow Surge's separation of policies, routing rules and traffic capture. This
+is the intended product model, not a claim that the current CLI implements all
+of it. Runtime support is documented in `docs/DEVELOPMENT.md`.
 
-`App/AppTheme.swift` and `App/AppIcon.swift` define the shared visual system. Keep configuration behavior and navigation separate from appearance.
+- **Policy / 策略** manages proxy servers and policy groups. A server is a named
+  Hysteria endpoint; a group exposes a stable policy identity and chooses among
+  its members. DIRECT and REJECT are built-in actions, not editable servers.
+- **Rule / 规则** manages ordered traffic routing. A rule has a matcher and a
+  target policy: DIRECT, REJECT, a server or a group. First match wins; FINAL is
+  the last fallback rule and references a policy. FINAL is not itself a server
+  or a group and must not become a recursive outbound reference.
+- **增强模式 / Enhanced Mode** means TUN/VIF capture. It determines how traffic
+  enters the engine, not which policy wins. Administrator TUN and a future
+  Network Extension are implementations of capture, not different routing modes.
+- **系统代理 / System Proxy** is the other capture entry. Rule-based, global
+  proxy and direct are routing modes, independent of the capture switches.
 
-## Surfaces and typography
+Target data flow:
 
-- Use the adaptive warm-gray canvas, white cards and muted green accent from `AppTheme`.
-- Page titles are 26pt semibold, dialog titles 20pt and dashboard card titles 18pt. Section titles are 14pt semibold, body text 13pt and secondary text 12pt. Secondary text must retain at least 4.5:1 contrast against both the paper and canvas surfaces.
-- Page padding is 24pt. Card padding and grid gaps are 20pt. Cards have 20pt corners and a light shadow, without a decorative outline.
-- Buttons are at least 36pt high, with 16pt horizontal padding and 8pt corners. Fields use the same corner token and a focus-only accent outline.
-- Use 32pt hit areas for compact icon actions, with hover and keyboard-focus feedback. Center concise icon-and-title empty states within cards. Clip scroll content before adding the card shadow. Lists use spacing and selection fills instead of static outlines or separator lines; retain focus rings and functional selection indicators. Preserve dark-mode colors, keyboard operation and accessibility labels. Do not use color alone for rule or installation state.
+```text
+System proxy or Enhanced Mode (TUN)
+  -> selected routing mode
+  -> ordered rules and FINAL (in rule mode)
+  -> policy (DIRECT / REJECT / server / group)
+  -> group's selected member, where applicable
+  -> outbound connection
+```
 
-## Navigation and search
+A complete implementation must give both capture paths the same routing and
+policy semantics. Today PAC rules and proxy-only macOS TUN do not meet that
+requirement. Do not represent the existing PAC adapter as the finished rule
+engine or suggest that stored group/rule models already execute.
 
-The floating icon rail contains Overview, Processes, Policies and Rules, with Logs and Settings below. Selection uses a contrasting circular background. Icons come from the pinned local IconMCP Outline assets; native control indicators remain native.
+## Policy page
 
-The shared header owns each page's title and short subtitle. Do not repeat page titles inside the content. One capsule search component serves policies, processes and rules; each page retains its own query. Search fields share a stable 300pt width and include a clear action and search button. Clearing keeps input focus; Escape clears the query before leaving the field.
+Keep the Policy name in navigation. Organize this page into **policy groups**
+and **servers**, with distinct add/edit actions. Show each group's kind, members
+and actual selected member. Editing a server changes its connection definition;
+selecting a group member changes that group's choice, not an unrelated global
+FINAL setting. Reference servers and groups by stable IDs so renaming preserves
+rules and memberships.
 
-## Overview
+Implement manual selection first. Add automatic testing, fallback and balancing
+only with real execution and health-check support. Do not show fabricated
+latencies or an automatic group that behaves as an unlabelled manual group.
+Deletion must identify affected rules/groups and require a valid replacement or
+explicit removal of those references. Define cycle handling before allowing
+nested groups.
 
-Use the full available width. On wide windows, show four compact metric cards above two rows of mixed-size cards: network trends span two columns, with capture and FINAL cards beside them; the server preview spans two columns, with rule and log summaries beside it. Narrow windows reflow to two columns.
+## Rule page
 
-Only plot actual core samples. Use tabular numbers, binary byte units and an honest empty state when measurements are unavailable. Dashboard totals and system process counters have different scopes and must not be added together.
+Use a compact ordered table: enabled, order, type, match value, target policy,
+and comment. Put FINAL last. The policy picker offers supported built-ins,
+servers and groups, rather than only DIRECT or the current FINAL endpoint.
+Rule order must match actual engine order. Editing comments does not change
+runtime behaviour. Separate saved configuration from applied configuration;
+only report successful application after the core acknowledges it.
 
-## Processes and rules
+Unsupported matchers or target kinds cannot be silently accepted as effective
+rules. Preserve previously saved records, identify unsupported entries and
+prevent unsupported application. Unknown hit counts are unavailable, not zero.
 
-The process list has PID, name/path, rule, upload/download and sent/received columns. Paired numeric headings stack in the same order as their measurements; each remains individually sortable, with reserved arrow space to prevent text movement. Clicking a column cycles through both sort directions and default name order. Keep row identities and selection stable during sampling. Selected process details use separate information, path and transfer cards, with a 20pt gutter and no split-view divider.
+## Overview and navigation
 
-Rules use one table with enabled, number, type, value, policy, localized hit count, comment and a row delete action, ending with a nondeletable FINAL fallback row without a toggle or matching value. Keep row numbers but leave their column heading blank. The add action sits above the table at the trailing edge, separated by the standard 20pt section gap, and opens the Standard Rule sheet with a type picker, value/helper, policy and comment; double-click edits. Disabled rule text is muted while its checkbox remains the explicit state indicator. Comments participate in header search. A query filters FINAL as well as standard rules, and an empty match has a clear state. Selection is pruned against visible rows before delete actions. The table has a fixed 44pt header with bounded-height placeholders; rows start directly below it with no automatic list content margins. The table scrolls horizontally in narrow windows while its add and pending-change toolbar stays fixed above it. Native list selection supplies single-click highlights and the native primary action opens the editor on double-click. The hit-count heading is “命中” in Chinese and “Used” in English; its value initially displays 0 while backend hit counters are unavailable, and empty comments remain blank. Preserve the core's matching semantics and do not imply configurable drag ordering. Disabled rules are excluded from runtime configuration; comments alone never require reconnecting.
+Overview answers: is the service running, how is traffic captured, which routing
+mode is active, and is intervention needed? Keep capture controls and current
+state together; use Policy and Rule pages for detailed management. Avoid a large
+standalone FINAL card that suggests FINAL is the whole policy system.
 
-## Controls and copy
+Retain Policy and Rule as separate destinations. Put processes/connections,
+logs and settings in diagnostic or maintenance destinations. Scope search to
+the current searchable page; typing into search must not unexpectedly navigate
+from another page. Concrete visual styling can be refined independently of
+these semantics; do not treat a Surge-like workflow as a requirement to copy
+Surge's visual assets.
 
-Server editing places connection and security cards side by side on wide windows and stacks them on narrow windows. Pair host and port fields, keep deletion separate from saving, and show unsaved state beside Save without a routine saved banner. Policy measurement progress appears beside each active endpoint. Log controls share the card footer. Background maintenance states must distinguish checking, missing, current, update and repair rather than treating every installed component as ready.
+## Current implementation and next increment
 
-Capture switches belong to Overview, with menu-bar shortcuts. Settings contains transport parameters and background-service maintenance. Do not repeat capture controls or onboarding links across pages.
+`Shared/RoutingPolicy.swift` already defines server groups, outbound identities
+and ordered rules. The current increment compiles the visible legacy rule storage
+to native Rust routing for HTTP/SOCKS, with rule/global/direct modes and one
+selected server. PAC is absent from the new UI flow. Exact process name/path
+DIRECT shortcuts require the unreleased macOS dev core; address rules support
+DIRECT, REJECT and FINAL. Startup checks capabilities. Process attribution is
+TCP-only, best-effort and fails closed when unavailable. macOS TUN rule routing
+remains blocked. The next increment should migrate the ordered model and target
+identities deliberately, without dropping existing profiles or credentials.
 
-Place field labels and necessary helper text beside their inputs. Keep validation errors, pending-change status, recovery actions and deletion confirmations. Avoid explanatory banners, repeated section introductions and routine save messages. Chinese and English share the same structure.
+1. Policy: separate server management and manual policy-group editing.
+2. Rule: migrate to the ordered model and explicit target identities.
+3. Core integration: implement and verify target selection, routing application
+   and consistent behaviour across capture paths before enabling those controls.
+4. Overview: simplify service controls and present actual capability/state.
 
-FINAL menus place DIRECT first, followed by a separator and saved servers. DIRECT is persisted independently of the last selected server. A live switch applies immediately and restores the previous policy on failure; choosing the same saved server again must exit DIRECT. Dashboard and policy-selection indicators reflect the actual FINAL choice.
+The production app remains a UI for a verified prebuilt Rust CLI. The packet
+bridge and provider under `Experiments/` are separate prototypes. Multiple outbounds and macOS TUN routing are Rust/integration work, not changes
+that can be completed by rearranging SwiftUI views alone.
+
+## Shared interaction requirements
+
+Use `AppTheme` and `AppIcon` consistently. Keep Chinese/English structure,
+light/dark appearance, keyboard operation, focus indicators and accessibility
+labels. Do not use color alone for state. Keep errors, recovery actions,
+unsaved/applied-state differences and deletion confirmations visible. Show only
+real measurements; system process counters and core traffic totals have different
+scopes. Never activate system proxy, TUN, DNS or routes merely to preview a screen.
+
+## References
+
+- [Surge policies and rule execution](https://manual.nssurge.com/getting-started/how-surge-works.html)
+- [Surge policy groups](https://manual.nssurge.com/policy-groups/overview.html)
+- [Surge Enhanced Mode](https://manual.nssurge.com/features/enhanced-mode.html)

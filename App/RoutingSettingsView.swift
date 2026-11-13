@@ -9,19 +9,11 @@ struct RoutingSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             FormGroup(title: model.localized("代理配置")) {
-                FieldRow(title: model.localized("代理方式"), help: configuration.mode == .manual ? nil
-                    : model.localized("PAC 用于系统代理，请关闭增强模式后连接。")) {
-                    FormMenuPicker(title: model.localized("代理方式"), selection: Binding(
-                        get: { configuration.mode }, set: { value in update { $0.mode = value } }
-                    ), selectedTitle: model.localized(configuration.mode.title)) {
-                        ForEach(SystemProxyMode.allCases) { Text(model.localized($0.title)).tag($0) }
-                    }
-                }
-                if configuration.mode == .externalPAC {
-                    FieldRow(title: "PAC URL", help: model.localized("PAC 需指向当前本地代理端口。")) {
-                        AutosavingSettingField(title: "PAC URL", value: configuration.pacURL, localized: model.localized) { value in
-                            try model.routing.update { $0.pacURL = value.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        }
+                FieldRow(title: model.localized("请求模式"), help: model.localized("规则由 Rust 核心执行，修改后重新连接生效。")) {
+                    FormMenuPicker(title: model.localized("请求模式"), selection: Binding(
+                        get: { configuration.requestMode }, set: { value in update { $0.mode = .native; $0.requestMode = value } }
+                    ), selectedTitle: model.localized(configuration.requestMode.title)) {
+                        ForEach(RequestRoutingMode.allCases, id: \.self) { Text(model.localized($0.title)).tag($0) }
                     }
                 }
             }
@@ -29,7 +21,7 @@ struct RoutingSettingsView: View {
                 Toggle(model.localized("绕过本地网络"), isOn: Binding(
                     get: { configuration.bypassLocalNetworks }, set: { value in update { $0.bypassLocalNetworks = value } }
                 )).toggleStyle(.switch).controlSize(.small)
-                Text(model.localized(configuration.mode == .externalPAC && model.profile.systemProxyEnabled ? "系统代理由外部 PAC 管理；此选项仍用于增强模式。" : "绕过本机与局域网地址；本地域名通过系统代理例外与本地 DNS 处理。"))
+                Text(model.localized("规则模式下，显式规则优先；本地 IP 与 local、localhost、home.arpa 域名在 FINAL 前直连。IP 规则不主动解析域名。"))
                     .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
                 DisclosureGroup(model.localized("查看范围")) {
                     Text((LocalNetworkPolicy.ipv4 + LocalNetworkPolicy.ipv6 + LocalNetworkPolicy.domains).joined(separator: "\n"))

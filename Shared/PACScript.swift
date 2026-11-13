@@ -7,6 +7,9 @@ public enum PACScript {
         if validated.finalAction == .direct { validated.mode = .generatedPAC }
         try validated.validate()
         let configuration = validated.activeRules
+        guard configuration.finalAction != .reject, !configuration.addressRules.contains(where: { $0.action == .reject }) else {
+            throw ConfigurationError.invalid("REJECT 规则需要核心分流。")
+        }
         guard (1024...65535).contains(httpPort) else { throw ConfigurationError.invalid("本地代理端口无效。") }
         let finalRoute = configuration.finalAction == .direct ? "DIRECT" : "PROXY 127.0.0.1:\(httpPort)"
         func route(_ action: AddressRuleAction) -> String { action == .direct ? "DIRECT" : finalRoute }

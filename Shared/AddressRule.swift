@@ -2,8 +2,8 @@ import Foundation
 
 /// Selects an explicit address-rule route independently from the default proxy decision.
 public enum AddressRuleAction: String, Codable, CaseIterable, Sendable {
-    case direct, proxy
-    public var title: String { self == .direct ? "直连" : "代理" }
+    case direct, proxy, reject
+    public var title: String { switch self { case .direct: "直连"; case .proxy: "代理"; case .reject: "拒绝" } }
 }
 
 /// Selects the cached host lookup used by a domain address rule.

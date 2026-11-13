@@ -26,9 +26,9 @@ struct RuleEditorView: View {
                         }
                         FieldRow(title: model.localized("策略"), help: draft.kind.isProcess ? model.localized("进程规则仅支持 DIRECT。") : nil) {
                             FormMenuPicker(title: model.localized("策略"), selection: $draft.action,
-                                           selectedTitle: draft.kind.isProcess || draft.action == .direct ? "DIRECT" : "FINAL") {
+                                           selectedTitle: draft.kind.isProcess || draft.action == .direct ? "DIRECT" : draft.action == .reject ? "REJECT" : "FINAL") {
                                 Text("DIRECT").tag(AddressRuleAction.direct)
-                                if !draft.kind.isProcess { Text("FINAL").tag(AddressRuleAction.proxy) }
+                                if !draft.kind.isProcess { Text("FINAL").tag(AddressRuleAction.proxy); Text("REJECT").tag(AddressRuleAction.reject) }
                             }.disabled(draft.kind.isProcess)
                         }
                     }

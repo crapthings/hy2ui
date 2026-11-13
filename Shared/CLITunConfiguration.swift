@@ -3,7 +3,7 @@ import Darwin
 
 /// Builds only upstream-supported TUN settings from the helper's bounded, validated request.
 public enum CLITunConfiguration {
-    public static func make(_ input: LocalTunConfiguration) throws -> Data {
+    public static func make(_ input: LocalTunConfiguration, routeJournalPath: String? = nil, sessionID: UUID? = nil, parentPID: UInt32? = nil) throws -> Data {
         try input.validate()
         // Custom worker fields must never be silently ignored at the privileged boundary.
         guard input.directProcesses?.isEmpty != false, input.addressRules?.isEmpty != false,
@@ -20,12 +20,25 @@ public enum CLITunConfiguration {
             "tls": ["sni": input.serverName.isEmpty ? input.host : input.serverName],
             "tun": [
                 "name": name, "mtu": input.mtu, "timeout": "60s",
-                "address": ["ipv4": "198.18.0.1/30", "ipv6": "fd72:6832::1/126"],
+                "address": ["ipv4": "100.100.100.101/30", "ipv6": "fd72:6832::1/126"],
                 "route": ["strict": false, "ipv4": routes4, "ipv6": routes6,
                           "ipv4Exclude": ipv6 ? [] : ["\(endpoint)/32"],
                           "ipv6Exclude": ipv6 ? ["\(endpoint)/128"] : []]
             ]
         ]
+        if let routeJournalPath {
+            guard routeJournalPath.hasPrefix("/"), routeJournalPath.utf8.count <= 4096 else { throw LocalTunProtocolError.invalidConfiguration }
+            var tun = object["tun"] as! [String: Any]
+            var route = tun["route"] as! [String: Any]
+            route["journal"] = routeJournalPath
+            tun["route"] = route; object["tun"] = tun
+        }
+        if let sessionID {
+            guard routeJournalPath != nil, let parentPID, parentPID > 1 else { throw LocalTunProtocolError.invalidConfiguration }
+            var tun = object["tun"] as! [String: Any]
+            tun["session"] = ["id": sessionID.uuidString, "owner": "dev.hy2ui", "parentPid": parentPID]
+            object["tun"] = tun
+        }
         if !input.obfuscationPassword.isEmpty {
             object["obfs"] = ["type": "salamander", "salamander": ["password": input.obfuscationPassword]]
         }
@@ -36,7 +49,10 @@ public enum CLITunConfiguration {
     public static func captureRoutes(ipv6: Bool, bypass: Bool) throws -> [String] {
         var routes = try (ipv6 ? ["::/1", "8000::/1"] : ["0.0.0.0/1", "128.0.0.0/1"]).map(IPNetwork.init)
         if bypass {
-            for value in ipv6 ? LocalNetworkPolicy.ipv6 : LocalNetworkPolicy.ipv4 {
+            // Excluding ::1 alone leaves ::/128, an unspecified-address host route.
+            // It is not a traffic destination and macOS rejects its installation with EEXIST.
+            let excludedPrefixes = ipv6 ? ["::/128"] + LocalNetworkPolicy.ipv6 : LocalNetworkPolicy.ipv4
+            for value in excludedPrefixes {
                 let excluded = try IPNetwork(value)
                 routes = try routes.flatMap { try subtract(excluded, from: $0) }
             }
