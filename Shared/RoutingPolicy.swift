@@ -35,7 +35,7 @@ public enum RequestRoutingMode: String, Codable, CaseIterable, Sendable {
 public enum ServerGroupKind: String, Codable, CaseIterable, Sendable {
     case select, urlTest = "url-test", fallback, loadBalance = "load-balance"
     public var title: String {
-        switch self { case .select: "手动选择"; case .urlTest: "自动测速"; case .fallback: "故障切换"; case .loadBalance: "负载均衡" }
+        switch self { case .select: "手动选择"; case .urlTest: "自动选优"; case .fallback: "故障切换"; case .loadBalance: "负载均衡" }
     }
 }
 
@@ -46,8 +46,27 @@ public struct ServerGroup: Codable, Equatable, Identifiable, Sendable {
     public var kind = ServerGroupKind.select
     public var members: [UUID] = []
     public var selectedID: UUID?
+    public var probeURL: String?
+    public var probeInterval: Int?
+    public var probeTimeout: Int?
+    public var failureThreshold: Int?
+    public var recoveryThreshold: Int?
+    public var toleranceMs: Int?
+    public var holdSeconds: Int?
     public init() {}
     public func validate(serverIDs: Set<UUID>) throws {
+        if kind != .select {
+            guard (5...3600).contains(probeInterval ?? 30), (1...30).contains(probeTimeout ?? 5),
+                  (1...10).contains(failureThreshold ?? 3), (1...10).contains(recoveryThreshold ?? 2),
+                  (0...60000).contains(toleranceMs ?? 50), (0...3600).contains(holdSeconds ?? 60),
+                  let url = URLComponents(string: probeURL ?? "https://www.apple.com/library/test/success.html"),
+                  ["http", "https"].contains(url.scheme ?? ""), url.host?.isEmpty == false,
+                  url.user == nil, url.password == nil, url.fragment == nil,
+                  (probeURL?.utf8.count ?? 0) <= 2048,
+                  !(probeURL ?? "").contains(where: { $0.isWhitespace }) else {
+                throw ConfigurationError.invalid("服务器组探测地址或参数无效。")
+            }
+        }
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.utf8.count <= 128,
               !members.isEmpty, members.count <= 64, Set(members).count == members.count,
               members.allSatisfy(serverIDs.contains), selectedID.map(members.contains) ?? true else {

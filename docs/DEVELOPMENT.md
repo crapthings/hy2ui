@@ -52,11 +52,15 @@ to Rust native routing. Process rules precede address rules, local bypass and
 FINAL; applying changes requires reconnecting. Exact process name/path rules
 require a capable development core and apply only to local HTTP/SOCKS TCP. A
 missing process identity fails closed. Attribution is not a security boundary.
-PAC is no longer offered or installed; legacy storage and recovery remain readable.
+The GUI normalizes saved proxy modes to native routing. Legacy PAC storage and
+recovery remain readable; the compatibility proxy backend still contains a local
+PAC implementation for simple-hostname bypass. It is not a user-selectable mode.
 
-macOS TUN rule routing, Fake DNS, TUN process matching and Network Extension are
-not enabled. Custom routing combined with TUN is rejected rather than ignored.
-The independent `Experiments/PacketFlowAdapter` is outside the app build.
+macOS TUN rule routing, Fake DNS and TUN process matching are not enabled.
+Custom routing combined with TUN is rejected rather than ignored. The separate
+`Hy2UINE` target promotes the packet adapter into `NetworkExtension/`; it does not
+compile `Experiments/`. See [NE development](NETWORK-EXTENSION.md) for the
+capture-disabled build and remaining system acceptance work.
 
 ## Administrator TUN lifecycle
 
@@ -87,7 +91,7 @@ unspecified IPv6 host route (`::/128`). See
 
 ## Verification and diagnostics
 
-Follow `AGENTS.md`: default to inspection, build/test when requested, and keep
+Follow `AGENTS.md`: default to code checks, build only when requested, and keep
 real proxy, DNS, TUN, route and helper changes user initiated. Test and package on
 APFS with real symlinks when working from the exFAT migration copy. Exclude macOS
 metadata from traversal, source lists and packaging.
@@ -106,3 +110,25 @@ These scripts write private reports and do not change network settings. Diagnost
 reports, binaries and benchmark outputs belong in ignored build directories, not
 the documentation tree. Preserve capability and deployment limits when reporting
 results. See [remaining work](ROADMAP.md).
+
+## Experimental client groups
+
+The GUI now reads `capabilities.proxy_pool` schema 1 from the bundled executable,
+not the version string. Missing/incompatible capability keeps automatic group types
+disabled. Manual groups use the ordinary single-server switch lifecycle.
+
+Supported experimental cores can receive an in-memory `proxyPool` config for FINAL
+automatic groups: latency selection, priority fallback and target-affinity balance.
+The editor stores only membership and probe settings; credentials are loaded from
+the repository at connection time, serialized into the worker pipe, never saved in
+group preferences. Startup rechecks the selected binary's capabilities. The group
+connection pool supports local HTTP/HTTPS and SOCKS5 TCP. SOCKS5 UDP is enabled
+only when the core advertises both pool UDP support and the `socks5-udp` inbound;
+older pool cores retain `disableUdp=true`. Enhanced mode and UDP-specific health
+probes are not supported.
+A group member shown for manual selection must not be treated as the current member
+of an automatic group; selected-member telemetry is still outstanding.
+
+This GUI change does not replace the bundled development CLI manifest or open TUN
+pool support. A build with an older core still offers manual groups only. Per-rule
+GUI destinations and port-hopping endpoint editing remain separate follow-up work.

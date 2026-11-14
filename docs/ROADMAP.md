@@ -20,6 +20,9 @@ Implemented behavior is documented in [the development guide](DEVELOPMENT.md). T
 ## Product
 
 - Subscriptions and server import workflows.
+- Migrate the visible rule editor to ordered rules with explicit server/group destinations.
+- Actual selected-member telemetry for automatic groups and port-hopping endpoint editing.
+- Enable group support for additional capture paths only after core and lifecycle validation.
 - A defined kill-switch policy and its recovery behavior.
 - Native universal builds and Intel validation.
 

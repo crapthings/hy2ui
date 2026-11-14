@@ -4,8 +4,14 @@ import Darwin
 /// Selects the implementation that owns enhanced-mode interfaces, DNS, and routing.
 public enum EnhancedBackend: String, Codable, CaseIterable, Sendable {
     case localTun, networkExtension
-    public static var allCases: [EnhancedBackend] { [.localTun] }
-    public var title: String { self == .localTun ? "本地 TUN（管理员授权）" : "Network Extension（开发者签名）" }
+    public static var allCases: [EnhancedBackend] {
+        #if HY2_NETWORK_EXTENSION
+        [.localTun, .networkExtension]
+        #else
+        [.localTun]
+        #endif
+    }
+    public var title: String { self == .localTun ? "兼容模式（本地 TUN）" : "Network Extension（开发者签名）" }
 }
 
 /// Stores the editable server and local networking settings for one connection profile.
@@ -19,6 +25,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public var enhancedModeEnabled = false
     public var enhancedBackend = EnhancedBackend.localTun
 
+    public var allowLAN = false
     public var httpPort = 18080
     public var socksPort = 11080
     public var mtu = 1400
@@ -26,13 +33,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, host, port, serverName, mode, systemProxyEnabled, enhancedModeEnabled, enhancedBackend, httpPort, socksPort, mtu, dns
+        case allowLAN, id, name, host, port, serverName, mode, systemProxyEnabled, enhancedModeEnabled, enhancedBackend, enhancedBackendSchema, httpPort, socksPort, mtu, dns
     }
 
     /// Supplies explicit defaults for settings absent from earlier saved profiles.
     public init(from decoder: Decoder) throws {
         self.init()
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        allowLAN = try values.decodeIfPresent(Bool.self, forKey: .allowLAN) ?? false
         id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? id
         name = try values.decodeIfPresent(String.self, forKey: .name) ?? name
         host = try values.decodeIfPresent(String.self, forKey: .host) ?? host
@@ -50,7 +58,12 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         }
         enhancedBackend = try values.decodeIfPresent(EnhancedBackend.self, forKey: .enhancedBackend) ?? .localTun
         // A legacy extension selection must not opt the user into administrator TUN capture.
-        if enhancedBackend == .networkExtension {
+        #if HY2_NETWORK_EXTENSION
+        let acceptedExtensionSelection = try values.decodeIfPresent(Int.self, forKey: .enhancedBackendSchema) == 1
+        #else
+        let acceptedExtensionSelection = false
+        #endif
+        if enhancedBackend == .networkExtension && !acceptedExtensionSelection {
             enhancedBackend = .localTun
             enhancedModeEnabled = false
         }
@@ -68,9 +81,13 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         try values.encode(host, forKey: .host)
         try values.encode(port, forKey: .port)
         try values.encode(serverName, forKey: .serverName)
+        try values.encode(allowLAN, forKey: .allowLAN)
         try values.encode(systemProxyEnabled, forKey: .systemProxyEnabled)
         try values.encode(enhancedModeEnabled, forKey: .enhancedModeEnabled)
         try values.encode(enhancedBackend, forKey: .enhancedBackend)
+        #if HY2_NETWORK_EXTENSION
+        if enhancedBackend == .networkExtension { try values.encode(1, forKey: .enhancedBackendSchema) }
+        #endif
         try values.encode(httpPort, forKey: .httpPort)
         try values.encode(socksPort, forKey: .socksPort)
         try values.encode(mtu, forKey: .mtu)
@@ -122,8 +139,9 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
             config["obfs"] = ["type": "salamander", "salamander": ["password": credentials.obfuscationPassword]]
         }
         if systemProxyEnabled {
-            config["http"] = ["listen": "127.0.0.1:\(httpPort)"]
-            config["socks5"] = ["listen": "127.0.0.1:\(socksPort)"]
+            let listenHost = allowLAN ? "0.0.0.0" : "127.0.0.1"
+            config["http"] = ["listen": "\(listenHost):\(httpPort)"]
+            config["socks5"] = ["listen": "\(listenHost):\(socksPort)"]
         }
         return try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
     }

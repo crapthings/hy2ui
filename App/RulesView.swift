@@ -38,8 +38,6 @@ struct RulesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            Text(model.localized("规则按列表顺序交给 Rust 核心执行，修改后重新连接生效。进程规则仅限本机 TCP；macOS 增强模式暂不支持分流。"))
-                .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
             actions
             GeometryReader { geometry in
                 ScrollView(.horizontal) {

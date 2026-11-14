@@ -29,7 +29,7 @@ struct AppSettingsView: View {
                         }.disabled(model.editingDisabled)
                         FormGroup(title: model.localized("本地代理端口")) {
                             VStack(alignment: .leading, spacing: AppTheme.formSpacing) {
-                                FieldRow(title: "HTTP / HTTPS", help: model.localized("仅本机使用，端口需与 SOCKS5 不同。")) {
+                                FieldRow(title: "HTTP / HTTPS", help: model.localized("HTTP 和 HTTPS 共用此代理端口，需与 SOCKS5 端口不同。")) {
                                     settingField(.httpPort, title: "HTTP / HTTPS", value: String(model.profile.httpPort))
                                 }
                                 FieldRow(title: "SOCKS5") {
@@ -45,8 +45,23 @@ struct AppSettingsView: View {
                     Text(model.localized("请先添加服务器"))
                         .foregroundStyle(AppTheme.muted).padding(.vertical)
                 }
+                DiagnosticSettingsView(localized: model.localized)
                 RoutingSettingsView(model: model)
-                HelperManagementView(model: model)
+                FormGroup(title: model.localized("增强模式实现")) {
+                    Picker(model.localized("模式"), selection: Binding(get: { model.profile.enhancedBackend }, set: { model.selectEnhancedBackend($0) })) {
+                        ForEach(EnhancedBackend.allCases, id: \.self) { Text(model.localized($0.title)).tag($0) }
+                    }.disabled(model.editingDisabled)
+                    Text(model.localized("兼容模式使用管理员后台创建本地 TUN，无需 Network Extension；首次使用需安装后台并授权。"))
+                        .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                    #if HY2_NETWORK_EXTENSION
+                    Text(model.localized("NE 模式需要 Apple 签名和系统批准；当前离线构建未开放接管。"))
+                        .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                    #else
+                    Text(model.localized("当前版本提供兼容模式；NE 模式由单独的扩展版本提供。"))
+                        .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
+                    #endif
+                }
+                if model.profile.enhancedBackend == .localTun { HelperManagementView(model: model) }
                 if let error = model.errorMessage {
                     Text(model.localized(error)).font(AppTheme.caption).foregroundStyle(AppTheme.warning).textSelection(.enabled)
                 }

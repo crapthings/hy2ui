@@ -32,8 +32,13 @@ enum ApplicationServices {
     static func live() throws -> ApplicationSession {
         let repository = try ProfileStore()
         let proxy = SystemProxy(directory: repository.directory)
+        #if HY2_NETWORK_EXTENSION
+        let vpn: any VPNConnectionControlling = NetworkExtensionService()
+        #else
+        let vpn: any VPNConnectionControlling = UnavailableExtensionService()
+        #endif
         let connection = ConnectionCoordinator(
-            worker: CoreProcess(), proxy: proxy, vpn: UnavailableExtensionService(),
+            worker: CoreProcess(), proxy: proxy, vpn: vpn,
             localTunnel: LocalTunService(),
             resolveProxyConfiguration: { configuration in
                 try await Task.detached(priority: .userInitiated) {

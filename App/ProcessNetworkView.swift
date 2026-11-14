@@ -10,6 +10,8 @@ struct ProcessNetworkView: View {
     @State private var sort = ProcessListSort()
     @State private var ruleNotice: String?
     @State private var ruleError = false
+    @State private var ruleTargets: [ProcessIdentity] = []
+    @State private var showingRule = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -29,6 +31,11 @@ struct ProcessNetworkView: View {
                     if !selection.isEmpty { processDetails.frame(height: 230) }
                 }
             }.padding(AppTheme.pagePadding)
+        }
+        .sheet(isPresented: $showingRule) {
+            ProcessRuleSheet(model: model, identities: ruleTargets) { notice in
+                ruleError = false; ruleNotice = notice
+            }
         }
         .task { await activity.watch() }
         .onChange(of: selection) { _, value in activity.retain(value) }
@@ -160,26 +167,12 @@ struct ProcessNetworkView: View {
         Button(model.localized("复制 PID")) { copy(rows.map { String($0.sample.pid) }.joined(separator: "\n")) }
         if identities.count == rows.count {
             Divider()
-            Button("添加精确路径直连规则") { setRule(.direct, identities: identities) }.disabled(!model.initialized)
-            Button("移除精确路径直连规则") { setRule(.defaultRules, identities: identities) }.disabled(!model.initialized)
+            Button(model.localized("添加规则…")) {
+                ruleTargets = identities
+                showingRule = true
+            }.disabled(!model.initialized)
             Button(model.localized("复制路径")) { copy(identities.map { $0.target.path }.joined(separator: "\n")) }
         }
-    }
-
-    private func setRule(_ action: ProcessRoutingAction, identities: [ProcessIdentity]) {
-        do {
-            guard identities.allSatisfy(\.isCurrent) else {
-                throw ConfigurationError.invalid("进程已退出或身份已变化，请刷新后重试。")
-            }
-            try model.routing.update { configuration in
-                for identity in identities {
-                    try NativeClientRouting.validateProcess(identity.target.path)
-                    try ProcessRoutingPolicy.set(action, for: identity.target, in: &configuration)
-                }
-            }
-            ruleError = false
-            ruleNotice = "规则已保存，重新连接后生效；需要支持进程分流的 dev 核心，仅限本机 TCP。"
-        } catch { ruleError = true; ruleNotice = error.localizedDescription }
     }
 
     private func copy(_ value: String) {

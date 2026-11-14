@@ -79,7 +79,12 @@ final class AppModel {
         return serviceConfiguration?.applying(to: server) ?? server
     }
     var isFinalDirect: Bool { routing.configuration.finalAction == .direct }
-    var finalPolicyTitle: String { isFinalDirect ? "DIRECT" : defaultServer?.name ?? localized("请先添加策略") }
+    var finalPolicyTitle: String {
+        if isFinalDirect { return "DIRECT" }
+        if case let .group(id) = routing.configuration.finalOutbound,
+           let group = routing.configuration.groups.first(where: { $0.id == id }) { return group.name }
+        return defaultServer?.name ?? localized("请先添加策略")
+    }
     var serviceTitle: String {
         if isUpdatingCapture { return "正在应用接管设置" }
         if isSwitchingServer { return "正在切换出口" }
@@ -225,16 +230,57 @@ final class AppModel {
         } catch { session.editor.report(error); log(error.localizedDescription) }
     }
 
+    /// Persists LAN listener exposure and restarts an active proxy to apply the binding change.
+    func setLANSharing(_ enabled: Bool) async {
+        guard !editingDisabled else { return }
+        do {
+            var next = profile
+            next.allowLAN = enabled
+            profile = next
+            try persistServiceConfiguration()
+            if state == .connected { await reconnect() }
+        } catch { session?.editor.report(error) }
+    }
+
+    /// Records the bundled core’s supported automatic group policies.
+    private(set) var poolCapabilities = CorePoolCapabilities.unavailable
+
+    /// Refreshes feature gating from the bundled executable without opening proxy listeners.
+    func refreshPoolCapabilities() async {
+        do { poolCapabilities = try CorePoolCapabilities.parse(await CoreCapabilityProbe.read()) }
+        catch is CancellationError { return }
+        catch {
+            poolCapabilities = .unavailable
+            log(error.localizedDescription)
+        }
+    }
+
+    /// Selects a group through the same transactional lifecycle as a single server.
+    func useServerGroup(_ id: UUID, member: UUID? = nil) async {
+        guard canChooseServer, let group = routing.configuration.groups.first(where: { $0.id == id }), poolCapabilities.supports(group.kind),
+              let chosen = member ?? group.selectedID ?? group.members.first,
+              group.members.contains(chosen), servers.contains(where: { $0.id == chosen }) else { return }
+        if group.kind != .select && (profile.enhancedModeEnabled || !profile.systemProxyEnabled) {
+            policyNotice = localized("自动服务器组目前仅支持系统代理，请关闭增强模式。")
+            return
+        }
+        await applyFinalPolicy(serverID: chosen, groupID: id)
+    }
+
     func useServer(_ id: UUID) async { await applyFinalPolicy(serverID: id) }
 
 
     /// Applies a FINAL choice without losing its previous server or leaving a failed live switch selected.
-    private func applyFinalPolicy(serverID: UUID) async {
+    private func applyFinalPolicy(serverID: UUID, groupID: UUID? = nil) async {
         guard canChooseServer, let session else { return }
         let previousID = session.editor.library.selectedID
+        let previousOutbound = routing.configuration.finalOutbound
+        let nextOutbound: OutboundTarget = groupID.map { .group($0) } ?? .server(serverID)
+        let previousGroup = routing.configuration.groups.first { $0.id == groupID }
+        let memberChanged = previousGroup.map { $0.kind == .select && $0.selectedID != serverID } ?? false
         let previousAction = routing.configuration.finalAction
         let nextAction: AddressRuleAction = .proxy
-        guard previousAction != nextAction || serverID != previousID else { return }
+        guard previousAction != nextAction || serverID != previousID || previousOutbound != nextOutbound || memberChanged else { return }
         let wasRunning = state == .connected
         isSwitchingServer = true
         policyNotice = nil
@@ -252,7 +298,13 @@ final class AppModel {
             if wasRunning {
                 _ = try target.coreConfiguration(credentials: session.editor.credentialsForMeasurement(target.id))
             } else { try target.validate(requireCapture: false) }
-            try routing.update { $0.finalAction = nextAction }
+            try routing.update { configuration in
+                configuration.finalAction = nextAction
+                configuration.finalOutbound = nextOutbound
+                if memberChanged, let index = configuration.groups.firstIndex(where: { $0.id == groupID }) {
+                    configuration.groups[index].selectedID = serverID
+                }
+            }
             if wasRunning {
                 await disconnect()
                 guard session.connection.canConnect else {
@@ -269,7 +321,14 @@ final class AppModel {
         } catch {
             let failure = error
             do {
-                try routing.update { $0.finalAction = previousAction }
+                try routing.update { configuration in
+                    configuration.finalAction = previousAction
+                    configuration.finalOutbound = previousOutbound
+                    if memberChanged, let previousGroup,
+                       let index = configuration.groups.firstIndex(where: { $0.id == previousGroup.id }) {
+                        configuration.groups[index].selectedID = previousGroup.selectedID
+                    }
+                }
                 if let previousID, session.editor.library.selectedID != previousID { try session.editor.select(previousID) }
                 if wasRunning && session.connection.canConnect { await connect() }
             } catch { log(error.localizedDescription) }
@@ -325,7 +384,18 @@ final class AppModel {
             var selectedRouting = routing.configuration
             selectedRouting.mode = .native
             try selectedRouting.validateCapture(systemProxy: profile.systemProxyEnabled, enhanced: profile.enhancedModeEnabled, backend: profile.enhancedBackend)
-            let base = try profile.coreConfiguration(credentials: credentials)
+            var base = try profile.coreConfiguration(credentials: credentials)
+            if case let .group(id) = selectedRouting.finalOutbound {
+                guard let group = selectedRouting.groups.first(where: { $0.id == id }) else { throw ConfigurationError.invalid("服务器组已不存在。") }
+                if group.kind != .select {
+                    guard !profile.enhancedModeEnabled, profile.systemProxyEnabled else { throw ConfigurationError.invalid("自动服务器组目前仅支持系统代理，请关闭增强模式。") }
+                    let capabilities = try CorePoolCapabilities.parse(await CoreCapabilityProbe.read())
+                    poolCapabilities = capabilities
+                    var secrets: [UUID: Credentials] = [:]
+                    for member in group.members { secrets[member] = try session.editor.credentialsForMeasurement(member) }
+                    base = try ClientPoolConfiguration.applying(to: base, group: group, servers: servers, credentials: secrets, capabilities: capabilities)
+                }
+            }
             var core = try DesktopCoreConfiguration.object(base)
             core["desktopBypassLocalNetworks"] = selectedRouting.bypassLocalNetworks
             let configuration = try JSONSerialization.data(withJSONObject: core)
@@ -374,6 +444,17 @@ final class AppModel {
         let succeeded = await helperInstaller.perform(operation)
         isManagingHelper = false
         if succeeded && operation == .install && automaticCaptureEnabled { await connect() }
+    }
+
+    /// Changes only the selected backend; enabling capture remains a separate user action.
+    func selectEnhancedBackend(_ backend: EnhancedBackend) {
+        guard !editingDisabled, backend != profile.enhancedBackend, EnhancedBackend.allCases.contains(backend) else { return }
+        var next = profile
+        next.enhancedBackend = backend
+        next.enhancedModeEnabled = false
+        profile = next
+        do { try persistServiceConfiguration() }
+        catch { session?.editor.report(error) }
     }
 
     func clearLogs() { logs.removeAll() }

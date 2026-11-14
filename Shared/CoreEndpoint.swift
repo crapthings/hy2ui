@@ -12,6 +12,11 @@ public enum CoreEndpoint {
               let rawHost = url.host, let port = url.port else {
             throw ConfigurationError.invalid("服务器地址无效。")
         }
+        if object["proxyPool"] != nil {
+            // Pool members resolve independently in the core; the legacy endpoint is never dialed.
+            object["server"] = "127.0.0.1:443"
+            return (try JSONSerialization.data(withJSONObject: object, options: .sortedKeys), "127.0.0.1")
+        }
         let host = rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         if finalDirect {
             // No proxy connection is opened in DIRECT mode; avoid resolving an unused remote endpoint.

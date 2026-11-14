@@ -116,7 +116,7 @@ public struct RoutingConfiguration: Codable, Equatable, Sendable {
     }
 
     public func validateCapture(systemProxy: Bool, enhanced: Bool, backend: EnhancedBackend) throws {
-        guard !enhanced || backend == .localTun else {
+        guard !enhanced || EnhancedBackend.allCases.contains(backend) else {
             throw ConfigurationError.invalid("官方 CLI 仅支持本地 TUN。")
         }
         var active = self

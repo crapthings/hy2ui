@@ -7,12 +7,16 @@ import Foundation
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = RoutingPreferences(defaults: defaults)
-        try preferences.update { $0.mode = .externalPAC }
-        precondition(preferences.configuration.mode == .externalPAC)
-        let restored = RoutingPreferences(defaults: defaults)
-        precondition(restored.error == nil && restored.configuration.mode == .manual)
-        try preferences.update { $0.pacURL = "https://example.com/proxy.pac" }
-        precondition(RoutingPreferences(defaults: defaults).configuration.mode == .externalPAC)
+        // Old PAC preferences migrate to native routing without losing the saved record.
+        var legacy = RoutingConfiguration()
+        legacy.mode = .externalPAC
+        legacy.pacURL = "https://example.com/proxy.pac"
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "routingConfiguration")
+        let migrated = RoutingPreferences(defaults: defaults)
+        precondition(migrated.error == nil && migrated.configuration.mode == .native)
+        try migrated.update { $0.mode = .externalPAC }
+        precondition(migrated.configuration.mode == .native)
+        precondition(RoutingPreferences(defaults: defaults).configuration.mode == .native)
         let own = ProcessIdentity.read(pid: UInt32(ProcessInfo.processInfo.processIdentifier))!
         precondition(own.isCurrent)
         let stale = ProcessIdentity(pid: own.pid, startSeconds: own.startSeconds + 1,

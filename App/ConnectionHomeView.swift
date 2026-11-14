@@ -3,12 +3,8 @@ import SwiftUI
 /// Presents capture switches, connection errors and the supported CLI management cards.
 struct ConnectionHomeView: View {
     @Bindable var model: AppModel
-    var openSettings: () -> Void
     var editServer: () -> Void
-    var openPolicies: () -> Void
-    var openRules: () -> Void
     var openActivity: () -> Void
-    var openLogs: () -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -16,7 +12,7 @@ struct ConnectionHomeView: View {
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     attention
                     DashboardTrafficView(model: model, wide: geometry.size.width >= 1000,
-                                         openPolicies: openPolicies, openRules: openRules, openActivity: openActivity, openLogs: openLogs)
+                                         openActivity: openActivity)
                 }
                 .padding(AppTheme.pagePadding)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -32,10 +28,7 @@ struct ConnectionHomeView: View {
             } else if model.defaultServer == nil {
                 Button(model.localized("添加服务器"), action: editServer)
                     .buttonStyle(AppActionStyle(primary: true)).disabled(model.editingDisabled)
-            } else if model.requiresHelperInstallation && model.enhancedCaptureEnabled && model.state == .idle {
-                Button(model.localized("设置增强模式"), action: openSettings)
-                    .buttonStyle(AppActionStyle(primary: true)).disabled(model.isManagingHelper)
-            } else if model.automaticCaptureEnabled && model.state == .idle {
+            } else if model.automaticCaptureEnabled && !model.requiresHelperInstallation && model.state == .idle {
                 Button(model.localized("重试启动")) { Task { await model.connect() } }
                     .buttonStyle(AppActionStyle()).disabled(!model.canConnect || model.isSwitchingServer)
             }

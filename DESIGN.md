@@ -14,7 +14,7 @@ of it. Runtime support is documented in `docs/DEVELOPMENT.md`.
   the last fallback rule and references a policy. FINAL is not itself a server
   or a group and must not become a recursive outbound reference.
 - **增强模式 / Enhanced Mode** means TUN/VIF capture. It determines how traffic
-  enters the engine, not which policy wins. Administrator TUN and a future
+  enters the engine, not which policy wins. Administrator TUN and the experimental
   Network Extension are implementations of capture, not different routing modes.
 - **系统代理 / System Proxy** is the other capture entry. Rule-based, global
   proxy and direct are routing modes, independent of the capture switches.
@@ -31,9 +31,9 @@ System proxy or Enhanced Mode (TUN)
 ```
 
 A complete implementation must give both capture paths the same routing and
-policy semantics. Today PAC rules and proxy-only macOS TUN do not meet that
-requirement. Do not represent the existing PAC adapter as the finished rule
-engine or suggest that stored group/rule models already execute.
+policy semantics. The current system-proxy path uses native Rust routing, while macOS TUN
+remains proxy-only. Stored rule models must not be presented as executable
+features until the selected core and capture path support them.
 
 ## Policy page
 
@@ -78,27 +78,24 @@ from another page. Concrete visual styling can be refined independently of
 these semantics; do not treat a Surge-like workflow as a requirement to copy
 Surge's visual assets.
 
-## Current implementation and next increment
+## Implementation boundaries
 
-`Shared/RoutingPolicy.swift` already defines server groups, outbound identities
-and ordered rules. The current increment compiles the visible legacy rule storage
-to native Rust routing for HTTP/SOCKS, with rule/global/direct modes and one
-selected server. PAC is absent from the new UI flow. Exact process name/path
-DIRECT shortcuts require the unreleased macOS dev core; address rules support
-DIRECT, REJECT and FINAL. Startup checks capabilities. Process attribution is
-TCP-only, best-effort and fails closed when unavailable. macOS TUN rule routing
-remains blocked. The next increment should migrate the ordered model and target
-identities deliberately, without dropping existing profiles or credentials.
+The current GUI supports manual groups and capability-gated automatic FINAL
+groups. Automatic policies include latency selection, priority fallback and
+stable target-affinity balance. They use independently configured member lines;
+they do not imply per-packet balancing or port-hopping support. Automatic groups
+do not yet expose their actual selected-member telemetry.
 
-1. Policy: separate server management and manual policy-group editing.
-2. Rule: migrate to the ordered model and explicit target identities.
-3. Core integration: implement and verify target selection, routing application
-   and consistent behaviour across capture paths before enabling those controls.
-4. Overview: simplify service controls and present actual capability/state.
+The visible address-rule editor still supports DIRECT, REJECT and FINAL; process
+shortcuts support DIRECT. Connecting every ordered rule to an explicit server or
+group remains outstanding. Native routing and automatic groups are gated by the
+bundled executable's capability report, not its version name. macOS TUN rule
+routing remains blocked.
 
-The production app remains a UI for a verified prebuilt Rust CLI. The packet
-bridge and provider under `Experiments/` are separate prototypes. Multiple outbounds and macOS TUN routing are Rust/integration work, not changes
-that can be completed by rearranging SwiftUI views alone.
+Keep runtime details in [the development guide](docs/DEVELOPMENT.md), outstanding
+work in [the roadmap](docs/ROADMAP.md), and the promoted packet adapter's capture
+and deployment limits in [the NE guide](docs/NETWORK-EXTENSION.md). The original
+adapter under `Experiments/` remains a test fixture, not an application input.
 
 ## Shared interaction requirements
 

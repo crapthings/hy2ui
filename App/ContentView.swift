@@ -105,12 +105,12 @@ struct ContentView: View {
     @ViewBuilder private var detail: some View {
         switch destination {
         case .home:
-            ConnectionHomeView(model: model, openSettings: { destination = .settings }, editServer: {
+            ConnectionHomeView(model: model, editServer: {
                 if let server = model.defaultServer {
                     guard model.selectServer(server.id) else { return }
                 } else { guard model.addServer() else { return } }
                 destination = .server(model.profile.id)
-            }, openPolicies: { destination = .servers }, openRules: { destination = .rules }, openActivity: { destination = .processes }, openLogs: { destination = .logs })
+            }, openActivity: { destination = .processes })
         case .server:
             ServerEditorView(model: model, removed: { destination = .home })
         case .servers:
@@ -178,7 +178,7 @@ struct ContentView: View {
         case .home: return model.localized(model.serviceTitle)
         case .processes: return model.localized("实时网络活动")
         case .servers: return model.localized("服务器与出口选择")
-        case .rules: return model.localized("自动 PAC 地址规则")
+        case .rules: return model.localized("分流规则与默认出口")
         case .settings: return model.localized("连接与后台服务")
         case .logs: return model.localized("最近连接记录")
         case .server: return model.profile.host.isEmpty ? model.localized("服务器配置") : model.profile.serverAddress

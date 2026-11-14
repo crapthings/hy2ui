@@ -5,6 +5,8 @@ public struct ServiceConfiguration: Codable, Equatable, Sendable {
     public var systemProxyEnabled: Bool
     public var enhancedModeEnabled: Bool
     public var enhancedBackend: EnhancedBackend
+    private var enhancedBackendSchema: Int?
+    private var allowLAN: Bool?
     public var httpPort: Int
     public var socksPort: Int
     public var mtu: Int
@@ -14,6 +16,12 @@ public struct ServiceConfiguration: Codable, Equatable, Sendable {
         systemProxyEnabled = profile.systemProxyEnabled
         enhancedModeEnabled = profile.enhancedModeEnabled
         enhancedBackend = profile.enhancedBackend
+        #if HY2_NETWORK_EXTENSION
+        enhancedBackendSchema = profile.enhancedBackend == .networkExtension ? 1 : nil
+        #else
+        enhancedBackendSchema = nil
+        #endif
+        allowLAN = profile.allowLAN
         httpPort = profile.httpPort
         socksPort = profile.socksPort
         mtu = profile.mtu
@@ -23,8 +31,11 @@ public struct ServiceConfiguration: Codable, Equatable, Sendable {
     public func applying(to server: Profile) -> Profile {
         var result = server
         result.systemProxyEnabled = systemProxyEnabled
-        result.enhancedModeEnabled = enhancedModeEnabled && enhancedBackend == .localTun
-        result.enhancedBackend = .localTun
+        let available = EnhancedBackend.allCases.contains(enhancedBackend)
+            && (enhancedBackend != .networkExtension || enhancedBackendSchema == 1)
+        result.enhancedModeEnabled = enhancedModeEnabled && available
+        result.enhancedBackend = available ? enhancedBackend : .localTun
+        result.allowLAN = allowLAN ?? false
         result.httpPort = httpPort
         result.socksPort = socksPort
         result.mtu = mtu

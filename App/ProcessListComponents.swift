@@ -90,7 +90,9 @@ struct ProcessListRow: View {
                     .font(AppTheme.caption).foregroundStyle(AppTheme.muted)
                     .lineLimit(1).truncationMode(.middle)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .clipped()
+            .layoutPriority(-1)
             .help(row.identity?.target.path ?? row.sample.name)
             ProcessTransferValues(outgoing: TrafficFormatting.rate(row.uploadRate), incoming: TrafficFormatting.rate(row.downloadRate),
                                   outgoingTitle: localized("上传"), incomingTitle: localized("下载"))

@@ -315,6 +315,7 @@ func enhancedOnlyDoesNotStartSystemProxy() async {
     await coordinator.disconnect()
 }
 
+#if !HY2_NETWORK_EXTENSION
 /// Rejects legacy extension capture before starting either tunnel service.
 @Test @MainActor
 func legacyNetworkExtensionBackendIsRejected() async {
@@ -331,6 +332,25 @@ func legacyNetworkExtensionBackendIsRejected() async {
     #expect(coordinator.lastError != nil)
     await coordinator.disconnect()
 }
+
+#else
+/// An NE build selects only the injected extension service for explicit extension capture.
+@Test @MainActor
+func networkExtensionBackendSelectsOnlyItsOwnService() async {
+    let extensionService = FakeVPN()
+    let local = FakeVPN()
+    var profile = Profile()
+    profile.host = "203.0.113.8"
+    profile.systemProxyEnabled = false
+    profile.enhancedModeEnabled = true
+    profile.enhancedBackend = .networkExtension
+    let coordinator = ConnectionCoordinator(worker: FakeWorker(), proxy: FakeProxy(), vpn: extensionService, localTunnel: local)
+    await coordinator.connect(profile: profile, configuration: Data("{}".utf8), credentials: Credentials())
+    #expect(extensionService.starts == 1)
+    #expect(local.starts == 0)
+    await coordinator.disconnect()
+}
+#endif
 
 /// Rolls back an already-installed system proxy if enhanced-mode startup fails.
 @Test @MainActor

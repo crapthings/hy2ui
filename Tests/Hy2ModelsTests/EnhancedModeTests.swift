@@ -18,8 +18,13 @@ import Testing
     profile.enhancedModeEnabled = true
     profile.enhancedBackend = .networkExtension
     let decoded = try PersistedConfiguration.decodeProfile(JSONEncoder().encode(profile))
+    #if HY2_NETWORK_EXTENSION
+    #expect(decoded.enhancedBackend == .networkExtension)
+    #expect(decoded.systemProxyEnabled && decoded.enhancedModeEnabled)
+    #else
     #expect(decoded.enhancedBackend == .localTun)
     #expect(decoded.systemProxyEnabled && !decoded.enhancedModeEnabled)
+    #endif
 }
 
 /// Writes only independent switches so simultaneous capture never loses information in a legacy field.
@@ -75,4 +80,16 @@ import Testing
     profile.mtu = 1400
     profile.socksPort = profile.httpPort
     #expect(throws: (any Error).self) { try profile.validate() }
+}
+
+/// A new NE-capable build still requires an explicit new-schema selection before capture.
+@Test func legacyNetworkExtensionProfileNeverAutoEnablesCapture() throws {
+    var profile = Profile()
+    profile.enhancedModeEnabled = true
+    profile.enhancedBackend = .networkExtension
+    var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(profile)) as? [String: Any])
+    object.removeValue(forKey: "enhancedBackendSchema")
+    let restored = try JSONDecoder().decode(Profile.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(restored.enhancedBackend == .localTun)
+    #expect(!restored.enhancedModeEnabled)
 }

@@ -14,76 +14,198 @@ settings:
       HY2_NATIVE_PROFILE: release
   base:
     SWIFT_VERSION: '5.0'
-    ENABLE_USER_SCRIPT_SANDBOXING: NO
-    MARKETING_VERSION: '0.1.0'
+    ENABLE_USER_SCRIPT_SANDBOXING: false
+    MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: '1'
 targets:
   Hy2UI:
     type: application
     platform: macOS
     sources:
-      - App
-      - Shared
-      - Connection
-      - path: .build/generated/HelperInstallerPayload.swift
+    - App
+    - Shared
+    - Connection
+    - path: .build/generated/HelperInstallerPayload.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HY2_BUNDLE_PREFIX).app
-        GENERATE_INFOPLIST_FILE: YES
+        GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_CFBundleDisplayName: Hy2UI
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
     dependencies:
-      - sdk: SystemConfiguration.framework
-      - sdk: Security.framework
+    - sdk: SystemConfiguration.framework
+    - sdk: Security.framework
     preBuildScripts:
-      - name: Prepare upstream CLI and macOS helper
-        script: |
-          set -eu
-          case "$ARCHS" in *" "*) echo "Build one architecture at a time." >&2; exit 1 ;; esac
-          "$SRCROOT/Scripts/build-native.sh" "$HY2_NATIVE_PROFILE" "$ARCHS"
-        inputFiles:
-          - $(SRCROOT)/Scripts/build-native.sh
-          - $(SRCROOT)/Scripts/prepare-cli.py
-          - $(SRCROOT)/Shared/CLITunConfiguration.swift
-          - $(SRCROOT)/Shared/LocalDNSPolicy.swift
-          - $(SRCROOT)/Shared/IPNetwork.swift
-          - $(SRCROOT)/Shared/LocalTunIPC.swift
-          - $(SRCROOT)/Shared/CoreFlowDiagnostic.swift
-          - $(SRCROOT)/Shared/CoreDiagnosticParser.swift
-          - $(SRCROOT)/LocalTunHelper/HelperInstanceLock.swift
-          - $(SRCROOT)/LocalTunHelper/HelperSocket.swift
-          - $(SRCROOT)/LocalTunHelper/LocalDNSResolvers.swift
-          - $(SRCROOT)/LocalTunHelper/LocalTunServer.swift
-          - $(SRCROOT)/LocalTunHelper/PrivilegedCoreCommand.swift
-          - $(SRCROOT)/LocalTunHelper/PrivilegedDNS.swift
-          - $(SRCROOT)/LocalTunHelper/PrivilegedWorker.swift
-          - $(SRCROOT)/LocalTunHelper/TrustedInstallation.swift
-          - $(SRCROOT)/LocalTunHelper/main.swift
-        outputFiles:
-          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hysteria
-          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-tun-worker
-          - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-local-tun-helper
-        # Core selection may change through a local manifest or environment variable.
-        basedOnDependencyAnalysis: false
+    - name: Prepare upstream CLI and macOS helper
+      script: 'set -eu
+
+        case "$ARCHS" in *" "*) echo "Build one architecture at a time." >&2; exit
+        1 ;; esac
+
+        "$SRCROOT/Scripts/build-native.sh" "$HY2_NATIVE_PROFILE" "$ARCHS"
+
+        '
+      inputFiles:
+      - $(SRCROOT)/Scripts/build-native.sh
+      - $(SRCROOT)/Scripts/prepare-cli.py
+      - $(SRCROOT)/Shared/CLITunConfiguration.swift
+      - $(SRCROOT)/Shared/LocalDNSPolicy.swift
+      - $(SRCROOT)/Shared/IPNetwork.swift
+      - $(SRCROOT)/Shared/LocalTunIPC.swift
+      - $(SRCROOT)/Shared/CoreFlowDiagnostic.swift
+      - $(SRCROOT)/Shared/CoreDiagnosticParser.swift
+      - $(SRCROOT)/LocalTunHelper/HelperInstanceLock.swift
+      - $(SRCROOT)/LocalTunHelper/HelperSocket.swift
+      - $(SRCROOT)/LocalTunHelper/LocalDNSResolvers.swift
+      - $(SRCROOT)/LocalTunHelper/LocalTunServer.swift
+      - $(SRCROOT)/LocalTunHelper/PrivilegedCoreCommand.swift
+      - $(SRCROOT)/LocalTunHelper/PrivilegedDNS.swift
+      - $(SRCROOT)/LocalTunHelper/PrivilegedWorker.swift
+      - $(SRCROOT)/LocalTunHelper/TrustedInstallation.swift
+      - $(SRCROOT)/LocalTunHelper/main.swift
+      outputFiles:
+      - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hysteria
+      - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-tun-worker
+      - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-local-tun-helper
+      basedOnDependencyAnalysis: false
     postBuildScripts:
-      - name: Embed upstream CLI
-        script: |
-          set -eu
-          mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
-          native_arch="${ARCHS%% *}"
-          # Remove retired extension code left in an incremental app bundle from an older build.
-          rm -rf "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/SystemExtensions"
-          for binary in hysteria hy2-tun-worker hy2-local-tun-helper; do
-            cp "$SRCROOT/.build/native/$HY2_NATIVE_PROFILE/$native_arch/$binary" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary"
-          done
-          if [ "${CODE_SIGNING_ALLOWED:-NO}" = YES ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
-            for binary in hysteria hy2-tun-worker hy2-local-tun-helper; do
-              codesign --force --options runtime --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary"
-            done
-          fi
-        basedOnDependencyAnalysis: false
+    - name: Embed upstream CLI
+      script: "set -eu\nmkdir -p \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\"\
+        \nnative_arch=\"${ARCHS%% *}\"\n# Remove retired extension code left in an\
+        \ incremental app bundle from an older build.\nrm -rf \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/SystemExtensions\"\
+        \nfor binary in hysteria hy2-tun-worker hy2-local-tun-helper; do\n  cp \"\
+        $SRCROOT/.build/native/$HY2_NATIVE_PROFILE/$native_arch/$binary\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary\"\
+        \ndone\nif [ \"${CODE_SIGNING_ALLOWED:-NO}\" = YES ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\"\
+        \ ]; then\n  for binary in hysteria hy2-tun-worker hy2-local-tun-helper; do\n\
+        \    codesign --force --options runtime --sign \"$EXPANDED_CODE_SIGN_IDENTITY\"\
+        \ \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary\"\n  done\nfi\n"
+      basedOnDependencyAnalysis: false
+  Hy2UINE:
+    type: application
+    platform: macOS
+    sources:
+    - App
+    - Shared
+    - Connection
+    - path: .build/generated/HelperInstallerPayload.swift
+    - NetworkExtensionHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(HY2_BUNDLE_PREFIX).neapp
+        INFOPLIST_KEY_CFBundleDisplayName: Hy2UI
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) HY2_NETWORK_EXTENSION
+        CODE_SIGN_ENTITLEMENTS: NetworkExtensionHost/Host.entitlements
+        HY2_NE_ENABLE_CAPTURE: 'NO'
+    dependencies:
+    - sdk: SystemConfiguration.framework
+    - sdk: Security.framework
+    - sdk: NetworkExtension.framework
+    - sdk: SystemExtensions.framework
+    - sdk: Network.framework
+    - target: Hy2PacketTunnel
+      embed: true
+    preBuildScripts:
+    - name: Prepare upstream CLI and macOS helper
+      script: 'set -eu
+
+        case "$ARCHS" in *" "*) echo "Build one architecture at a time." >&2; exit
+        1 ;; esac
+
+        "$SRCROOT/Scripts/build-native.sh" "$HY2_NATIVE_PROFILE" "$ARCHS"
+
+        '
+      inputFiles:
+      - $(SRCROOT)/Scripts/build-native.sh
+      - $(SRCROOT)/Scripts/prepare-cli.py
+      - $(SRCROOT)/Shared/CLITunConfiguration.swift
+      - $(SRCROOT)/Shared/LocalDNSPolicy.swift
+      - $(SRCROOT)/Shared/IPNetwork.swift
+      - $(SRCROOT)/Shared/LocalTunIPC.swift
+      - $(SRCROOT)/Shared/CoreFlowDiagnostic.swift
+      - $(SRCROOT)/Shared/CoreDiagnosticParser.swift
+      - $(SRCROOT)/LocalTunHelper/HelperInstanceLock.swift
+      - $(SRCROOT)/LocalTunHelper/HelperSocket.swift
+      - $(SRCROOT)/LocalTunHelper/LocalDNSResolvers.swift
+      - $(SRCROOT)/LocalTunHelper/LocalTunServer.swift
+      - $(SRCROOT)/LocalTunHelper/PrivilegedCoreCommand.swift
+      - $(SRCROOT)/LocalTunHelper/PrivilegedDNS.swift
+      - $(SRCROOT)/LocalTunHelper/PrivilegedWorker.swift
+      - $(SRCROOT)/LocalTunHelper/TrustedInstallation.swift
+      - $(SRCROOT)/LocalTunHelper/main.swift
+      outputFiles:
+      - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hysteria
+      - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-tun-worker
+      - $(SRCROOT)/.build/native/$(HY2_NATIVE_PROFILE)/$(ARCHS)/hy2-local-tun-helper
+      basedOnDependencyAnalysis: false
+    postBuildScripts:
+    - name: Embed upstream CLI
+      script: "set -eu\nmkdir -p \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\"\
+        \nnative_arch=\"${ARCHS%% *}\"\n# Remove retired extension code left in an\
+        \ incremental app bundle from an older build.\nfor binary in hysteria hy2-tun-worker\
+        \ hy2-local-tun-helper; do\n  cp \"$SRCROOT/.build/native/$HY2_NATIVE_PROFILE/$native_arch/$binary\"\
+        \ \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary\"\ndone\nif [\
+        \ \"${CODE_SIGNING_ALLOWED:-NO}\" = YES ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\"\
+        \ ]; then\n  for binary in hysteria hy2-tun-worker hy2-local-tun-helper; do\n\
+        \    codesign --force --options runtime --sign \"$EXPANDED_CODE_SIGN_IDENTITY\"\
+        \ \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/$binary\"\n  done\nfi"
+      basedOnDependencyAnalysis: false
+    info:
+      path: .build/generated/NEHost-Info.plist
+      properties:
+        Hy2NetworkExtensionBuild: 'YES'
+        Hy2CaptureEnabled: $(HY2_NE_ENABLE_CAPTURE)
+        Hy2PacketProviderIdentifier: $(HY2_BUNDLE_PREFIX).PacketTunnel
+        NSSystemExtensionUsageDescription: Hy2UI uses a network extension to provide
+          the selected VPN tunnel.
+        CFBundlePackageType: APPL
+  Hy2PacketTunnel:
+    type: system-extension
+    platform: macOS
+    sources:
+    - NetworkExtension
+    - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(HY2_BUNDLE_PREFIX).PacketTunnel
+        PRODUCT_NAME: $(HY2_BUNDLE_PREFIX).PacketTunnel
+        PRODUCT_MODULE_NAME: Hy2PacketTunnel
+        CODE_SIGN_ENTITLEMENTS: NetworkExtension/PacketTunnel.entitlements
+        HY2_NE_ENABLE_CAPTURE: 'NO'
+        HY2_NE_CORE_DEV_MANIFEST: ''
+        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/NetworkExtension/PacketCore-Bridging.h
+        HEADER_SEARCH_PATHS: $(inherited) $(SRCROOT)/.build/ne-core/$(ARCHS)
+        OTHER_LDFLAGS: $(inherited) $(SRCROOT)/.build/ne-core/$(ARCHS)/libhysteria_packet_bridge.a
+          -framework Security -framework SystemConfiguration -liconv -lresolv
+    info:
+      path: .build/generated/PacketTunnel-Info.plist
+      properties:
+        CFBundlePackageType: SYSX
+        CFBundleDisplayName: Hy2UI Packet Tunnel
+        Hy2CaptureEnabled: $(HY2_NE_ENABLE_CAPTURE)
+        NetworkExtension:
+          NEMachServiceName: $(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)
+          NEProviderClasses:
+            com.apple.networkextension.packet-tunnel: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    dependencies:
+    - sdk: NetworkExtension.framework
+    - sdk: Security.framework
+    - sdk: SystemConfiguration.framework
+    preBuildScripts:
+    - name: Verify prebuilt packet core
+      script: 'set -eu
+
+        case "$ARCHS" in *" "*) echo "Build one architecture at a time" >&2; exit
+        1 ;; esac
+
+        python3 "$SRCROOT/Scripts/prepare-ne-core.py" "$CONFIGURATION" "$ARCHS"'
+      basedOnDependencyAnalysis: false
 schemes:
   Hy2UI:
     build:
       targets:
         Hy2UI: all
+  Hy2UINE:
+    build:
+      targets:
+        Hy2UINE: all

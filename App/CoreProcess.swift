@@ -50,8 +50,18 @@ final class CoreProcess {
             throw ConfigurationError.invalid("应用未包含官方 CLI，请先运行 Scripts/prepare-cli.py。")
         }
         let object = try DesktopCoreConfiguration.object(configuration)
-        if let routing = object["routing"] as? [String: Any] {
-            try await verifyCapabilities(routing: routing)
+        if object["proxyPool"] != nil || object["routing"] != nil {
+            let report = try await CoreCapabilityProbe.read(binaryURL: binaryURL)
+            if let pool = object["proxyPool"] as? [String: Any], let groups = pool["groups"] as? [String: [String: Any]] {
+                let capabilities = try CorePoolCapabilities.parse(report)
+                let udpEnabled = (object["socks5"] as? [String: Any]).map { $0["disableUdp"] as? Bool != true } ?? false
+                guard (!udpEnabled || capabilities.udp), groups.values.allSatisfy({ ($0["policy"] as? String).map(capabilities.policies.contains) == true }) else {
+                    throw ConfigurationError.invalid("当前核心不支持此服务器组类型。")
+                }
+            }
+            if let routing = object["routing"] as? [String: Any] {
+                try verifyCapabilities(report: report, routing: routing)
+            }
         }
         try Task.checkCancellation()
         guard session == nil, stopTask == nil else { throw ConfigurationError.invalid("客户端正在启动。") }
@@ -87,44 +97,20 @@ final class CoreProcess {
         }
     }
 
-    private func verifyCapabilities(routing: [String: Any]) async throws {
-        let probe = Process(), output = Pipe()
-        probe.executableURL = binaryURL
-        probe.arguments = ["capabilities", "--output", "json"]
-        probe.standardInput = FileHandle.nullDevice
-        probe.standardOutput = output
-        probe.standardError = FileHandle.nullDevice
-        try probe.run()
-        try output.fileHandleForWriting.close()
-        let reader = Task.detached { output.fileHandleForReading.readDataToEndOfFile() }
-        defer { try? output.fileHandleForReading.close() }
-        do {
-            let deadline = ContinuousClock.now + .seconds(5)
-            while probe.isRunning {
-                try Task.checkCancellation()
-                guard ContinuousClock.now < deadline else { throw ConfigurationError.invalid("核心能力检查超时。") }
-                try await Task.sleep(for: .milliseconds(20))
+    private func verifyCapabilities(report data: Data, routing: [String: Any]) throws {
+        guard let report = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              report["schema_version"] as? Int == 1,
+              let capabilities = report["routing"] as? [String: Any],
+              capabilities["version"] as? Int == 1 else {
+            throw ConfigurationError.invalid("当前核心不支持原生分流，请更新核心。")
+        }
+        let rules = routing["rules"] as? [String] ?? []
+        if rules.contains(where: { $0.contains("(process-name:") || $0.contains("(process-path:") }) {
+            guard capabilities["process_matching"] as? Bool == true,
+                  let inbounds = capabilities["process_inbounds"] as? [String],
+                  inbounds.contains("http-tcp"), inbounds.contains("socks5-tcp") else {
+                throw ConfigurationError.invalid("当前核心尚不支持进程规则，请使用包含进程分流能力的 dev 核心。")
             }
-            let data = await reader.value
-            guard probe.terminationStatus == 0, data.count <= 65_536,
-                  let report = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  report["schema_version"] as? Int == 1,
-                  let capabilities = report["routing"] as? [String: Any],
-                  capabilities["version"] as? Int == 1 else {
-                throw ConfigurationError.invalid("当前核心不支持原生分流，请更新核心。")
-            }
-            let rules = routing["rules"] as? [String] ?? []
-            if rules.contains(where: { $0.contains("(process-name:") || $0.contains("(process-path:") }) {
-                guard capabilities["process_matching"] as? Bool == true,
-                      let inbounds = capabilities["process_inbounds"] as? [String],
-                      inbounds.contains("http-tcp"), inbounds.contains("socks5-tcp") else {
-                    throw ConfigurationError.invalid("当前核心尚不支持进程规则，请使用包含进程分流能力的 dev 核心。")
-                }
-            }
-        } catch {
-            if probe.isRunning { kill(probe.processIdentifier, SIGKILL) }
-            _ = await reader.value
-            throw error
         }
     }
 

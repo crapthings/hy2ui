@@ -108,7 +108,7 @@ enum RuleEditorKind: String, CaseIterable, Identifiable {
     }
     var help: String {
         switch self {
-        case .process: return "精确匹配可执行文件名；需要支持进程规则的 dev 核心，仅限本机 HTTP/SOCKS TCP。"
+        case .process: return "精确匹配可执行文件名；适用于本机 HTTP / HTTPS、SOCKS5 代理的 TCP 连接，需要核心支持进程分流。"
         case .processPath: return "精确匹配可执行文件完整路径，不支持应用目录或通配符。"
         case .domainExact: return "仅匹配此域名。"
         case .domain: return "匹配此域名及其子域名。"

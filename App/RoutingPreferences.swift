@@ -27,13 +27,8 @@ final class RoutingPreferences {
         var next = configuration
         try change(&next)
         next.mode = .native
-        // An empty external URL can be edited without committing an invalid connection configuration.
-        if next.mode == .externalPAC && next.pacURL.isEmpty {
-            var check = next; check.mode = .manual; try check.validate()
-        } else { try next.validate() }
-        var persisted = next
-        if persisted.mode == .externalPAC && persisted.pacURL.isEmpty { persisted.mode = .manual }
-        defaults.set(try JSONEncoder().encode(persisted), forKey: Self.key)
+        try next.validate()
+        defaults.set(try JSONEncoder().encode(next), forKey: Self.key)
         if configuration != next { revision += 1 }
         configuration = next; error = nil
     }

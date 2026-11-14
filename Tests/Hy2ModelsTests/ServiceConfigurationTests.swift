@@ -23,11 +23,14 @@ import Testing
 }
 
 /// Keeps a saved extension backend from silently enabling administrator TUN on another selected server.
-@Test func serviceConfigurationDisablesLegacyExtensionCapture() {
+@Test func serviceConfigurationDisablesLegacyExtensionCapture() throws {
     var legacy = Profile()
     legacy.enhancedBackend = .networkExtension
     legacy.enhancedModeEnabled = true
-    let applied = ServiceConfiguration(profile: legacy).applying(to: Profile())
+    var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(ServiceConfiguration(profile: legacy))) as? [String: Any])
+    object.removeValue(forKey: "enhancedBackendSchema")
+    let restored = try JSONDecoder().decode(ServiceConfiguration.self, from: JSONSerialization.data(withJSONObject: object))
+    let applied = restored.applying(to: Profile())
     #expect(applied.enhancedBackend == .localTun)
     #expect(!applied.enhancedModeEnabled)
 }

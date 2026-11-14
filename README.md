@@ -8,7 +8,9 @@ and administrator TUN capture. Supports light/dark appearance and Chinese/Englis
 
 System-proxy rules use Rust native routing. Exact macOS process-name/path rules
 require a capable development core and apply to local HTTP/SOCKS TCP only.
-macOS TUN rule routing, Fake DNS and Network Extension are not enabled. Legacy
+macOS TUN rule routing and Fake DNS are not enabled. A separate Network Extension
+Debug target supports offline development; capture is disabled by default. See
+[Network Extension development](docs/NETWORK-EXTENSION.md). Legacy
 PAC recovery remains supported, but PAC is no longer offered by the interface.
 
 The Swift administrator helper installs separately from the on-demand utun
